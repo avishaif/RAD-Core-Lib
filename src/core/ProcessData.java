@@ -26,21 +26,26 @@ public class ProcessData {
 	 */
 	public ProcessData(String name, int priority, int[] affinity) {
 
-		if (System.getProperty("os.name").startsWith("Windows")) 
-		{
+		if (System.getProperty("os.name").startsWith("Windows")) {
 			normalizer = new WindowsNormalizer();
-		} 
-		else if (System.getProperty("os.name").startsWith("Linux")) 
-		{
+		} else if (System.getProperty("os.name").startsWith("Linux")) {
 			normalizer = new LinuxNormalizer();
 		}
 
 		this.threads = new ArrayList<>();
 		int[] normalizedValues = normalizer.normalize(priority, true);
-		this.policy = normalizedValues[0];
-		this.pName = name;
-		this.priority = normalizedValues[1];
-		this.affinity = affinity;
+		if (normalizedValues != null) {
+			this.policy = normalizedValues[0];
+			this.pName = name;
+			this.priority = normalizedValues[1];
+			this.affinity = affinity;
+		} else {
+			this.policy = -1;
+			this.pName = name;
+			this.priority = -1;
+			this.affinity = affinity;
+
+		}
 	}
 
 	/**
@@ -51,21 +56,25 @@ public class ProcessData {
 	 * @param affinity
 	 */
 	public ProcessData(int pid, int priority, int[] affinity) {
-		if (System.getProperty("os.name").startsWith("Windows")) 
-		{
+		if (System.getProperty("os.name").startsWith("Windows")) {
 			normalizer = new WindowsNormalizer();
-		}
-		else if (System.getProperty("os.name").startsWith("Linux")) 
-		{
+		} else if (System.getProperty("os.name").startsWith("Linux")) {
 			normalizer = new LinuxNormalizer();
 		}
 
 		this.threads = new ArrayList<>();
 		int[] normalizedValues = normalizer.normalize(priority, true);
-		this.policy = normalizedValues[0];
-		this.pid = pid;
-		this.priority = normalizedValues[1];
-		this.affinity = affinity;
+		if (normalizedValues != null) {
+			this.policy = normalizedValues[0];
+			this.pid = pid;
+			this.priority = normalizedValues[1];
+			this.affinity = affinity;
+		} else {
+			this.policy = -1;
+			this.pid = pid;
+			this.priority = -1;
+			this.affinity = affinity;
+		}
 	}
 
 	/**
@@ -83,13 +92,12 @@ public class ProcessData {
 	public void setName(String name) {
 		this.pName = name;
 	}
-	
+
 	/**
 	 * 
 	 * @param pid
 	 */
-	public void setId(int pid)
-	{
+	public void setId(int pid) {
 		this.pid = pid;
 	}
 

@@ -1,11 +1,8 @@
 package handlers;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -14,6 +11,7 @@ import javathreadshandlers.JavaThreadHandlerLinux;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import cache.Cache;
 import core.ProcessData;
 import core.Results;
 import core.ThreadData;
@@ -23,117 +21,87 @@ public class LinuxHandler extends Handler {
 
 	private static Logger log;
 	private JavaThreadHandlerLinux javaHandler;
+	private LinuxSerivceClass service;
+	private int processorCount;
 
 	public LinuxHandler() {
-		super();
+		this.cache = new ArrayList<>();
 		log = LogManager.getRootLogger();
+		this.processorCount = getProcessorCount();
+		this.service = new LinuxSerivceClass(processorCount);
 	}
 
-	/**
-	 *
-	 * @param pid
-	 *            Int process id
-	 * @param affinity
-	 *            Integer array, containing core or cpus number to use
-	 * @return
-	 */
+	private boolean setProcessAffinity(int pid, int[] affinity, boolean checked) {
+		String temp = PALib.INSTANCE.setAffinity(pid, affinity);
+		if (temp.equals("")) {
+			return true;
+		} else {
+			if (log.isErrorEnabled()) {
+				log.error(temp);
+			}
+			return false;
+		}
+	}
 
 	@Override
 	public boolean setProcessAffinity(int pid, int[] affinity) {
-
-		if (pid < 0) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid process id: '" + pid + "'");
-			}
-			return false;
-		} else if (affinity == null) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is null");
-			}
-			return false;
-		} else if (affinity.length < 1) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is empty");
-			}
-			return false;
-		} else if (affinity.length > getProcessorCount()) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid affinity mask");
-			}
-			return false;
+		if (service.checkParams(affinity, pid, null)) {
+			Cache c = checkCache(pid, null, -1, -1, affinity);
+			if (c != null) {
+				if (c.getAffinity() != null)
+					Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setProcessAffinity(pid, affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+					return false;
+				}
+			} else
+				return setProcessAffinity(pid, affinity, true);
 		}
-		String temp = PALib.INSTANCE.setAffinity(pid, affinity);
-		if (temp.equals("")) {
-			return true;
-		} else {
-			if (log.isErrorEnabled()) {
-				log.error(temp);
-			}
-			return false;
-		}
+		return false;
 	}
 
-	/**
-	 *
-	 * @param pName
-	 *            process name
-	 * @param affinity
-	 *            integer array, containing core or cpus number to use
-	 * @return true if successful
-	 */
 	@Override
 	public boolean setProcessAffinity(String pName, int[] affinity) {
-		if (pName.equals("")) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid process name: '" + pName + "'");
-			}
-			return false;
-		} else if (affinity == null) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is null");
-			}
-			return false;
-		} else if (affinity.length < 1) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is empty");
-			}
-			return false;
-		} else if (affinity.length > getProcessorCount()) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid affinity mask");
-			}
-			return false;
-		}
-		int pid;
-		try {
-			pid = getPid(pName);
-		} catch (IOException e) {
-			if (log.isErrorEnabled()) {
-				log.error(e);
-			}
-			return false;
-		}
+		if (service.checkParams(affinity, -1, pName)) {
+			Cache c = checkCache(-1, pName, -1, -1, affinity);
+			if (c != null) {
+				Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setProcessAffinity(c.getId(), affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+					return false;
+				}
+			} else {
+				int pid;
+				try {
+					pid = service.getPid(pName);
+				} catch (IOException e) {
+					if (log.isErrorEnabled()) {
+						log.error(e);
+					}
 
-		String temp = PALib.INSTANCE.setAffinity(pid, affinity);
-		if (temp.equals("")) {
-			return true;
-		} else {
-			if (log.isErrorEnabled()) {
-				log.error(temp);
+					return false;
+				}
+
+				this.cache.add(new Cache(pid, pName, affinity, -1, -1));
+				return setProcessAffinity(pid, affinity, true);
+
 			}
-			return false;
 		}
+		return false;
 	}
 
-	/**
-	 * sets affinity for a list of processes for each process/thread returns
-	 * true if set successfuly
-	 * 
-	 * @param processes
-	 *            a collection of ProcessData type
-	 * @return Array of type boolean the size of processes
-	 * 
-	 */
 	@Override
 	public List<Results> setProcessAffinity(Collection<ProcessData> processes) {
 		List<Results> results = null;
@@ -156,55 +124,19 @@ public class LinuxHandler extends Handler {
 									setNativeThreadAffinity(thread.getId(),
 											thread.getAffinity()));
 						} else
-
 							result.addThread(
 									thread.getName(),
 									setNativeThreadAffinity(thread.getName(),
 											thread.getAffinity()));
-
 					}
-
 				}
-
 				results.add(result);
 			}
 		}
-
 		return results;
 	}
 
-	/**
-	 *
-	 * @param tid
-	 *            thread id of type integer
-	 * @param affinity
-	 *            integer array who stores core or cpu number for use
-	 * @return boolean true if successful
-	 * 
-	 */
-	@Override
-	public boolean setNativeThreadAffinity(int tid, int[] affinity) {
-		if (tid <= 0) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid thread id: '" + tid + "'");
-			}
-			return false;
-		} else if (affinity == null) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is null");
-			}
-			return false;
-		} else if (affinity.length < 1) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is empty");
-			}
-			return false;
-		} else if (affinity.length > getProcessorCount()) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid affinity mask");
-			}
-			return false;
-		}
+	private boolean setThreadAffinity(int tid, int[] affinity, boolean checked) {
 		String temp = PALib.INSTANCE.setAffinity(tid, affinity);
 		if (temp.equals("")) {
 			return true;
@@ -216,87 +148,98 @@ public class LinuxHandler extends Handler {
 		}
 	}
 
-	/**
-	 *
-	 * @param tName
-	 *            thread name
-	 * @param affinity
-	 *            integer array
-	 * @return true if set successfuly
-	 */
+	@Override
+	public boolean setNativeThreadAffinity(int tid, int[] affinity) {
+		if (service.checkParams(affinity, tid, null)) {
+			Cache c = checkCache(tid, null, -1, -1, affinity);
+			if (c != null) {
+				Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setThreadAffinity(c.getId(), affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+					return false;
+				}
+			} else
+				return setThreadAffinity(tid, affinity, true);
+		}
+		return false;
+	}
+
 	@Override
 	public boolean setNativeThreadAffinity(String tName, int[] affinity) {
-		if (tName.equals("")) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid thread name: '" + tName + "'");
+		if (service.checkParams(affinity, -1, tName)) {
+			Cache c = checkCache(-1, tName, -1, -1, affinity);
+			if (c != null) {
+				Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setThreadAffinity(c.getId(), affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+					return false;
+				}
+			} else {
+				int tid;
+				try {
+					tid = service.getTid(tName);
+				} catch (IOException e) {
+					if (log.isErrorEnabled()) {
+						log.error(e);
+					}
+					return false;
+				}
+				this.cache.add(new Cache(tid, tName, affinity, -1, -1));
+				return setThreadAffinity(tid, affinity, true);
 			}
-			return false;
-		} else if (affinity == null) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is null");
-			}
-			return false;
-		} else if (affinity.length < 1) {
-			if (log.isErrorEnabled()) {
-				log.error("affinity mask is empty");
-			}
-			return false;
-		} else if (affinity.length > getProcessorCount()) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid affinity mask");
-			}
-			return false;
 		}
-		int tid;
-		try {
-			tid = getTid(tName);
-		} catch (IOException e) {
-			if (log.isErrorEnabled()) {
-				log.error(e);
-			}
-			return false;
-		}
-
-		String temp = PALib.INSTANCE.setAffinity(tid, affinity);
-		if (temp.equals("")) {
-			return true;
-		} else {
-			if (log.isErrorEnabled()) {
-				log.error(temp);
-			}
-			return false;
-		}
+		return false;
 	}
 
 	@Override
 	public boolean setNativeThreadAffinity(String pName, String tName,
 			int[] affinity) {
-		int tid = 0;
-		try {
-			for (int pid : getAllPids(pName)) {
-				tid = getTid(pid, tName);
-				if (tid != -1)
-					break;
+		if (service.checkParams(affinity, -1, tName)) {
+			Cache c = checkCache(-1, tName, -1, -1, affinity);
+			if (c != null) {
+				Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setThreadAffinity(c.getId(), affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+				}
+			} else {
+				int tid = 0;
+				try {
+					for (int pid : service.getAllPids(pName)) {
+						tid = service.getTid(pid, tName);
+						if (tid != -1)
+							break;
+					}
+				} catch (IOException e) {
+					if (log.isDebugEnabled())
+						log.debug(e);
+					e.printStackTrace();
+					return false;
+				}
+				this.cache.add(new Cache(tid, tName, affinity, -1, -1));
+				return setThreadAffinity(tid, affinity, true);
 			}
-
-		} catch (IOException e) {
-			if (log.isDebugEnabled())
-				log.debug(e);
-			e.printStackTrace();
-			return false;
 		}
-
-		return setNativeThreadAffinity(tid, affinity);
+		return false;
 	}
 
-	/**
-	 * 
-	 * @param threads
-	 *            collection of type ThreadData
-	 * @return Array of type boolean the size of threads collection for each
-	 *         process/thread true is set if set successfuly
-	 * 
-	 */
 	@Override
 	public List<Results> setNativeThreadAffinity(Collection<ThreadData> threads) {
 		List<Results> results = null;
@@ -313,7 +256,6 @@ public class LinuxHandler extends Handler {
 						result = new Results(thread.getId(),
 								setNativeThreadAffinity(thread.getId(),
 										thread.getAffinity()));
-
 				} else if (thread.isJavaThread())
 					result = new Results(thread.getName(),
 							setJavaThreadAffinity(thread.getName(),
@@ -322,144 +264,171 @@ public class LinuxHandler extends Handler {
 					result = new Results(thread.getName(),
 							setNativeThreadAffinity(thread.getName(),
 									thread.getAffinity()));
-
 				results.add(result);
 			}
-
 		}
-
 		return results;
 	}
 
 	@Override
 	public boolean setJavaThreadAffinity(int tid, int[] affinity) {
 		javaHandler = new JavaThreadHandlerLinux();
-		return setNativeThreadAffinity(javaHandler.getNativeThreadId(tid),
-				affinity);
+		String tName = javaHandler.getThreadName(tid);
+		if (service.checkParams(affinity, tid, null)) {
+			Cache c = checkCache(-1, tName, -1, -1, affinity);
+			if (c != null) {
+				Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setThreadAffinity(c.getId(), affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+					return false;
+				}
+			} else {
+				int id = javaHandler.getNativeThreadId(tid);
+				this.cache.add(new Cache(id, tName, affinity, -1, -1));
+				return setThreadAffinity(id, affinity, true);
+			}
+		}
+		return false;
 	}
 
 	@Override
 	public boolean setJavaThreadAffinity(String tName, int[] affinity) {
-		javaHandler = new JavaThreadHandlerLinux();
-		return setNativeThreadAffinity(javaHandler.getNativeThreadId(tName),
-				affinity);
+		if (service.checkParams(affinity, -1, tName)) {
+			Cache c = checkCache(-1, tName, -1, -1, affinity);
+			if (c != null) {
+				Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setThreadAffinity(c.getId(), affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+					return false;
+				}
+			} else {
+				javaHandler = new JavaThreadHandlerLinux();
+				int id = javaHandler.getNativeThreadId(tName);
+				this.cache.add(new Cache(id, tName, affinity, -1, -1));
+				return setThreadAffinity(id, affinity, true);
+			}
+		}
+		return false;
 	}
 
 	@Override
 	public boolean setJavaThreadAffinity(String pName, String tName,
 			int[] affinity) {
-		javaHandler = new JavaThreadHandlerLinux();
-		return setNativeThreadAffinity(javaHandler.getNativeThreadId(tName),
-				affinity);
+		if (service.checkParams(affinity, -1, tName)) {
+			Cache c = checkCache(-1, tName, -1, -1, affinity);
+			if (c != null) {
+				Arrays.sort(c.getAffinity());
+				Arrays.sort(affinity);
+				if (Arrays.equals(c.getAffinity(), affinity))
+					return true;
+				else {
+					if (setThreadAffinity(c.getId(), affinity, true)) {
+						c.setAffinity(affinity);
+						return true;
+					}
+					return false;
+				}
+			} else {
+				int id = 0;
+				try {
+					javaHandler = new JavaThreadHandlerLinux();
+					id = javaHandler.getNativeThreadId(tName,
+							service.getPid(pName));
+				} catch (IOException e) {
+					if (log.isDebugEnabled())
+						log.debug(e);
+					e.printStackTrace();
+					return false;
+				}
+				this.cache.add(new Cache(id, tName, affinity, -1, -1));
+				return setThreadAffinity(id, affinity, true);
+			}
+		}
+		return false;
+	}
+
+	private boolean setProcessPriority(int pid, int policy, int priority,
+			boolean checked) {
+		String temp = PALib.INSTANCE.setPriority(pid, policy, priority);
+		if (temp.equals("")) {
+			return true;
+		} else {
+			if (log.isErrorEnabled()) {
+				log.error(temp);
+			}
+			return false;
+		}
 	}
 
 	@Override
-	public boolean setJavaThreadAffinity(int pid, int tid, int[] affinity) {
-		javaHandler = new JavaThreadHandlerLinux();
-		return setNativeThreadAffinity(
-				javaHandler.getNativeThreadIdByProcess(pid, tid), affinity);
-	}
-
-	/**
-	 *
-	 * @param pid
-	 *            process id
-	 * @param priority
-	 *            priority value to be set
-	 * @return
-	 */
-
 	public boolean setProcessPriority(int pid, int policy, int priority) {
-		if (pid < 0) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid process id: '" + pid + "'");
+		if (service.checkParams(pid, null, policy, priority)) {
+			Cache c = checkCache(pid, null, priority, policy, null);
+			if (c != null)
+				if (c.getPolicy() == policy && c.getPriority() == priority)
+					return true;
+				else {
+					if (setProcessPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				this.cache.add(new Cache(pid, null, null, priority, policy));
+				return setProcessPriority(pid, policy, priority, true);
 			}
-			return false;
-		} else if (policy < 0 || policy > 2) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid policy value: '" + policy + "'");
-
-			}
-			return false;
-		} else if ((policy == 0 && priority < -20 || priority > 19)
-				|| (policy != 0 && priority < 1 || priority > 99)) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid priority value: '" + priority + "'");
-
-			}
-			return false;
 		}
-		String temp = PALib.INSTANCE.setPriority(pid, policy, priority);
-		if (temp.equals("")) {
-			return true;
-		} else {
-			if (log.isErrorEnabled()) {
-				log.error(temp);
-
-			}
-			return false;
-		}
+		return false;
 	}
 
-	/**
-	 *
-	 * @param pName
-	 *            process name
-	 * @param priority
-	 *            priority value to be set
-	 * @return
-	 */
+	@Override
 	public boolean setProcessPriority(String pName, int policy, int priority) {
-		if (pName.equals("")) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid process name: '" + pName + "'");
+		if (service.checkParams(-1, pName, policy, priority)) {
+			Cache c = checkCache(-1, pName, priority, policy, null);
+			if (c != null)
+				if (c.getPriority() == priority && c.getPolicy() == policy)
+					return true;
+				else {
+					if (setProcessPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				int pid = 0;
+				try {
+					pid = service.getPid(pName);
+				} catch (IOException e) {
+					if (log.isErrorEnabled()) {
+						log.error(e);
+					}
+					return false;
+				}
+				this.cache.add(new Cache(pid, pName, null, priority, policy));
+				return setProcessPriority(pid, policy, priority, true);
 			}
-			return false;
-		} else if (policy < 0 || policy > 2) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid policy value: '" + policy + "'");
-
-			}
-			return false;
-		} else if ((policy == 0 && priority < -20 || priority > 19)
-				|| (policy != 0 && priority < 1 || priority > 99)) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid priority value: '" + priority + "'");
-
-			}
-			return false;
 		}
-		int pid = 0;
-		try {
-			pid = getPid(pName);
-		} catch (IOException e) {
-			if (log.isErrorEnabled()) {
-				log.error(e);
-			}
-			return false;
-		}
-		String temp = PALib.INSTANCE.setPriority(pid, policy, priority);
-		if (temp.equals("")) {
-			return true;
-		} else {
-			if (log.isErrorEnabled()) {
-				log.error(temp);
-			}
-			return false;
-		}
+		return false;
 	}
 
-	/**
-	 * 
-	 * @param processes
-	 *            a collection of type ProcessData
-	 * @return return an Array of type boolean foreach process/thread true if
-	 *         set successfuly
-	 * 
-	 */
 	@Override
 	public List<Results> setProcessPriority(Collection<ProcessData> processes) {
-
 		List<Results> results = null;
 		if (processes != null && !processes.isEmpty()) {
 			results = new ArrayList<>();
@@ -469,12 +438,10 @@ public class LinuxHandler extends Handler {
 					result = new Results(process.getId(), setProcessPriority(
 							process.getId(), process.getPolicy(),
 							process.getPriority()));
-
 				} else
 					result = new Results(process.getName(), setProcessPriority(
 							process.getName(), process.getPolicy(),
 							process.getPriority()));
-
 				if (process.getThreads().size() > 0) {
 					for (ThreadData thread : process.getThreads()) {
 						if (thread.getName().equals("none")) {
@@ -483,7 +450,6 @@ public class LinuxHandler extends Handler {
 									setNativeThreadPriority(thread.getId(),
 											thread.getPolicy(),
 											thread.getPriority()));
-
 						} else
 							result.addThread(
 									thread.getName(),
@@ -491,148 +457,149 @@ public class LinuxHandler extends Handler {
 											thread.getPolicy(),
 											thread.getPriority()));
 					}
-
 				}
-
 				results.add(result);
 			}
 		}
-
 		return results;
 	}
 
-	/**
-	 *
-	 * @param tid
-	 *            thread name
-	 * @param priority
-	 * @return true if set successfuly
-	 */
-	public boolean setNativeThreadPriority(int tid, int policy, int priority) {
-		if (tid < 0) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid thread id: '" + tid + "'");
-			}
-			return false;
-		} else if (policy < 0 || policy > 2) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid policy value: '" + policy + "'");
-
-			}
-			return false;
-		} else if ((policy == 0 && priority < -20 || priority > 19)
-				|| (policy != 0 && priority < 1 || priority > 99)) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid priority value: '" + priority + "'");
-
-			}
-			return false;
-		}
+	private boolean setThreadPriority(int tid, int policy, int priority,
+			boolean checked) {
 		String temp = PALib.INSTANCE.setPriority(tid, policy, priority);
 		if (temp.equals("")) {
 			return true;
 		} else {
-			if (log.isErrorEnabled()) {
+			if (log.isErrorEnabled())
 				log.error(temp);
-				return false;
-			}
-
 			return false;
 		}
 	}
 
-	/**
-	 *
-	 * @param tName
-	 *            thread name
-	 * @param priority
-	 *            priority value to be set
-	 * @return true if set successfuly
-	 */
+	@Override
+	public boolean setNativeThreadPriority(int tid, int policy, int priority) {
+		if (service.checkParams(tid, null, policy, priority)) {
+			Cache c = checkCache(tid, null, priority, policy, null);
+			if (c != null)
+				if (c.getPolicy() == policy && c.getPriority() == priority)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				this.cache.add(new Cache(tid, null, null, priority, policy));
+				return setThreadPriority(tid, policy, priority, true);
+			}
+		}
+		return false;
+	}
+
+	@Override
 	public boolean setNativeThreadPriority(String tName, int policy,
 			int priority) {
-		if (tName.equals("")) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid thread name: '" + tName + "'");
+		if (service.checkParams(-1, tName, policy, priority)) {
+			Cache c = checkCache(-1, tName, priority, policy, null);
+			if (c != null)
+				if (c.getPriority() == priority && c.getPolicy() == policy)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				int tid = 0;
+				try {
+					tid = service.getTid(tName);
+				} catch (IOException e) {
+					if (log.isErrorEnabled()) {
+						log.error(e);
+					}
+					return false;
+				}
+				this.cache.add(new Cache(tid, tName, null, priority, policy));
+				return setThreadPriority(tid, policy, priority, true);
 			}
-			return false;
-		} else if (policy < 0 || policy > 2) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid policy value: '" + policy + "'");
-
-			}
-			return false;
-		} else if ((policy == 0 && priority < -20 || priority > 19)
-				|| (policy != 0 && priority < 1 || priority > 99)) {
-			if (log.isErrorEnabled()) {
-				log.error("invalid priority value: '" + priority + "'");
-
-			}
-			return false;
 		}
-		int tid = 0;
-		try {
-			tid = getTid(tName);
-		} catch (IOException e) {
-			if (log.isErrorEnabled()) {
-				log.error(e);
-			}
-			return false;
-		}
-
-		String temp = PALib.INSTANCE.setPriority(tid, policy, priority);
-		if (temp.equals("")) {
-			return true;
-		} else {
-			if (log.isErrorEnabled()) {
-				log.error(temp);
-			}
-			return false;
-		}
+		return false;
 	}
 
 	@Override
 	public boolean setNativeThreadPriority(String pName, String tName,
 			int policy, int priority) {
-		int pid = 0;
-		int tid = 0;
-		try {
-			pid = getPid(pName);
-			tid = getTid(pid, tName);
-		} catch (IOException e) {
-			if (log.isDebugEnabled())
-				log.debug(e);
-			e.printStackTrace();
-			return false;
+		if (service.checkParams(-1, tName, policy, priority)) {
+			Cache c = checkCache(-1, tName, priority, policy, null);
+			if (c != null)
+				if (c.getPolicy() == policy && c.getPriority() == priority)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				int pid = 0;
+				int tid = 0;
+				try {
+					pid = service.getPid(pName);
+					tid = service.getTid(pid, tName);
+				} catch (IOException e) {
+					if (log.isDebugEnabled())
+						log.debug(e);
+					e.printStackTrace();
+					return false;
+				}
+				this.cache.add(new Cache(tid, tName, null, priority, policy));
+				return setThreadPriority(tid, policy, priority, true);
+			}
 		}
-
-		return setNativeThreadPriority(tid, policy, priority);
+		return false;
 	}
 
 	@Override
 	public boolean setNativeThreadPriority(int pid, String tName, int policy,
 			int priority) {
-		int tid = 0;
-		try {
-			tid = getTid(pid, tName);
-		} catch (IOException e) {
-			if (log.isDebugEnabled())
-				log.debug(e);
-			e.printStackTrace();
-			return false;
+		if (service.checkParams(null, -1, tName)) {
+			Cache c = checkCache(0, tName, priority, policy, null);
+			if (c != null)
+				if (c.getPriority() == priority && c.getPolicy() == policy)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				int tid = 0;
+				try {
+					tid = service.getTid(pid, tName);
+				} catch (IOException e) {
+					if (log.isDebugEnabled())
+						log.debug(e);
+					e.printStackTrace();
+					return false;
+				}
+				this.cache.add(new Cache(tid, tName, null, priority, policy));
+				return setThreadPriority(tid, policy, priority, true);
+			}
 		}
-
-		return setNativeThreadPriority(tid, policy, priority);
+		return false;
 	}
 
-	/**
-	 * set priority for a list of threads
-	 * 
-	 * @param threads
-	 *            a collection of ThreadData type
-	 * @return return an Array of type boolean foreach thread true if set
-	 *         successfuly
-	 */
 	@Override
 	public List<Results> setNativeThreadPriority(Collection<ThreadData> threads) {
 		List<Results> results = null;
@@ -651,7 +618,6 @@ public class LinuxHandler extends Handler {
 								setNativeThreadPriority(thread.getId(),
 										thread.getPolicy(),
 										thread.getPriority()));
-
 				} else {
 					if (thread.isJavaThread())
 						result = new Results(thread.getName(),
@@ -664,7 +630,6 @@ public class LinuxHandler extends Handler {
 										thread.getPolicy(),
 										thread.getPriority()));
 				}
-
 				results.add(result);
 			}
 		}
@@ -674,294 +639,129 @@ public class LinuxHandler extends Handler {
 	@Override
 	public boolean setJavaThreadPriority(int tid, int policy, int priority) {
 		javaHandler = new JavaThreadHandlerLinux();
-		int nTid = javaHandler.getNativeThreadId(tid);
-		return setNativeThreadPriority(nTid, policy, priority);
+		String tName = javaHandler.getThreadName(tid);
+		if (service.checkParams(tid, null, policy, priority)) {
+			Cache c = checkCache(-1, tName, priority, policy, null);
+			if (c != null)
+				if (c.getPolicy() == policy && c.getPriority() == priority)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+				}
+			else {
+				int nTid = javaHandler.getNativeThreadId(tid);
+				this.cache.add(new Cache(nTid, tName, null, priority, policy));
+				return setThreadPriority(nTid, policy, priority, true);
+			}
+		}
+		return false;
 	}
 
 	@Override
 	public boolean setJavaThreadPriority(String tName, int policy, int priority) {
-		javaHandler = new JavaThreadHandlerLinux();
-		int tid = javaHandler.getNativeThreadId(tName);
-		if (-1 == tid) {
-			if (log.isErrorEnabled()) {
-				log.error("SetPriority failed, thread " + tName + "not found");
+		if (service.checkParams(-1, tName, policy, priority)) {
+			Cache c = checkCache(-1, tName, priority, policy, null);
+			if (c != null)
+				if (c.getPolicy() == policy && c.getPriority() == priority)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				javaHandler = new JavaThreadHandlerLinux();
+				int tid = javaHandler.getNativeThreadId(tName);
+				if (-1 == tid) {
+					if (log.isErrorEnabled()) {
+						log.error("SetPriority failed, thread " + tName
+								+ "not found");
+					}
+					return false;
+				}
+				this.cache.add(new Cache(tid, tName, null, priority, policy));
+				return setThreadPriority(tid, policy, priority, true);
 			}
-			return false;
 		}
-
-		return setNativeThreadPriority(tid, policy, priority);
-
-	}
-
-	@Override
-	public boolean setJavaThreadPriority(int pid, int tid, int policy,
-			int priority) {
-		javaHandler = new JavaThreadHandlerLinux();
-		int nTid = javaHandler.getNativeThreadIdByProcess(pid, tid);
-		return setNativeThreadPriority(nTid, policy, priority);
+		return false;
 	}
 
 	@Override
 	public boolean setJavaThreadPriority(String pName, String tName,
 			int policy, int priority) {
-		javaHandler = new JavaThreadHandlerLinux();
-		int tid = javaHandler.getNativeThreadId(tName);
-		return setNativeThreadPriority(tid, policy, priority);
+		if (service.checkParams(-1, tName, policy, priority)) {
+			Cache c = checkCache(-1, tName, priority, policy, null);
+			if (c != null)
+				if (c.getPolicy() == policy && c.getPriority() == priority)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
+					}
+					return false;
+				}
+			else {
+				javaHandler = new JavaThreadHandlerLinux();
+				int tid = javaHandler.getNativeThreadId(tName);
+				this.cache.add(new Cache(tid, tName, null, priority, policy));
+				return setThreadPriority(tid, policy, priority, true);
+			}
+		}
+		return false;
 	}
 
 	@Override
 	public boolean setJavaThreadPriority(int pid, String tName, int policy,
 			int priority) {
-		javaHandler = new JavaThreadHandlerLinux();
-		int tid = javaHandler.getNativeThreadId(tName, pid);
-		return setNativeThreadPriority(tid, policy, priority);
-	}
-
-	/**
-	 * finds process id by the process name, returns -1 if fails;
-	 * 
-	 * @param pName
-	 *            process name
-	 * @return true if successful
-	 * @throws IOException
-	 * 
-	 */
-
-	public int getPid(String pName) throws IOException {
-		int pid;
-		BufferedReader br = null;
-		String line;
-		File file = new File("/proc");
-		String[] processes = file.list((File current, String name) -> new File(
-				current, name).isDirectory());
-		for (int i = 0; i < processes.length; i++) {
-			if (processes[i].matches("[0-9]+")) {
-				File process = new File("/proc/" + processes[i] + "/status");
-				try {
-					br = new BufferedReader(new FileReader(process));
-					line = br.readLine();
-					String[] words = line.split(":\t");
-					if (words[1].equals(pName)) {
-						while ((line = br.readLine()) != null) {
-							words = line.split(":\t");
-							if (words[0].equals("Pid")) {
-								pid = Integer.parseInt(words[1]);
-								br.close();
-								return pid;
-							}
-						}
+		if (service.checkParams(-1, tName, policy, priority)) {
+			Cache c = checkCache(-1, tName, priority, policy, null);
+			if (c != null)
+				if (c.getPolicy() == policy && c.getPriority() == priority)
+					return true;
+				else {
+					if (setThreadPriority(c.getId(), policy, priority, true)) {
+						c.setPolicy(policy);
+						c.setPriority(priority);
+						return true;
 					}
-				} catch (FileNotFoundException e) {
-					if (log.isErrorEnabled()) {
-						log.error(e);
-					}
-					br.close();
-					return -1;
-
-				} catch (IOException e) {
-					if (log.isErrorEnabled()) {
-						log.error(e);
-					}
-					br.close();
-					return -1;
+					return false;
 				}
+			else {
+				javaHandler = new JavaThreadHandlerLinux();
+				int tid = javaHandler.getNativeThreadId(tName, pid);
+				this.cache.add(new Cache(tid, tName, null, priority, policy));
+				return setThreadPriority(tid, policy, priority, true);
 			}
 		}
-		if (log.isErrorEnabled()) {
-			log.error("Process: " + pName + " Not Found");
-		}
-		br.close();
-		return -1;
+		return false;
 	}
 
-	public List<Integer> getAllPids(String pName) throws IOException {
-		List<Integer> pid = new ArrayList<Integer>();
-		BufferedReader br = null;
-		String line;
-		File file = new File("/proc");
-		String[] processes = file.list((File current, String name) -> new File(
-				current, name).isDirectory());
-		for (int i = 0; i < processes.length; i++) {
-			if (processes[i].matches("[0-9]+")) {
-				File process = new File("/proc/" + processes[i] + "/status");
-				try {
-					br = new BufferedReader(new FileReader(process));
-					line = br.readLine();
-					String[] words = line.split(":\t");
-					if (words[1].equals(pName)) {
-						while ((line = br.readLine()) != null) {
-							words = line.split(":\t");
-							if (words[0].equals("Pid")) {
-								pid.add(Integer.parseInt(words[1]));
-							}
-						}
-					}
-				} catch (FileNotFoundException e) {
-					if (log.isErrorEnabled()) {
-						log.error(e);
-					}
-					br.close();
-					return null;
-
-				} catch (IOException e) {
-					if (log.isErrorEnabled()) {
-						log.error(e);
-					}
-					br.close();
-					return null;
-				}
-			}
-		}
-		br.close();
-		return pid;
-	}
-
-	/**
-	 * find thread id by the parent process id and thread name returns -1 if
-	 * fails
-	 * 
-	 * @param pid
-	 *            process id
-	 * @param tName
-	 *            thread name
-	 * @return thread id of type int
-	 * @throws IOException
-	 */
-	//
-	public int getTid(int pid, String tName) throws IOException {
-		if (pid > 0) {
-			int tid;
-			BufferedReader br = null;
-			String line;
-			File file = new File("/proc/" + pid + "/task");
-			String[] threads = file
-					.list((File current, String name) -> new File(current, name)
-							.isDirectory());
-			for (int i = 0; i < threads.length; i++) {
-				File thread = new File("/proc/" + pid + "/task/" + threads[i]
-						+ "/status");
-				try {
-					br = new BufferedReader(new FileReader(thread));
-					line = br.readLine();
-					String[] words = line.split(":\t");
-					if (words[1].equals(tName)) {
-						while ((line = br.readLine()) != null) {
-							words = line.split(":\t");
-							if (words[0].equals("Pid")) {
-								tid = Integer.parseInt(words[1]);
-								br.close();
-								return tid;
-							}
-						}
-					}
-				} catch (FileNotFoundException e) {
-					if (log.isErrorEnabled()) {
-						log.error(e);
-					}
-					if (br != null) {
-						br.close();
-					}
-					return -1;
-
-				} catch (IOException e) {
-					if (log.isErrorEnabled()) {
-						log.error(e);
-					}
-					if (br != null) {
-						br.close();
-					}
-					return -1;
-				}
-
-			}
-
-			if (br != null) {
-				br.close();
-			}
-
-		}
-
-		return -1;
-	}
-
-	/**
-	 * find thread id by the thread name returns -1 if fails
-	 * 
-	 * @param tName
-	 *            thread name
-	 * @return thread id if found otherwise -1
-	 * @throws IOException
-	 */
-
-	public int getTid(String tName) throws IOException {
-		int tid = 0;
-		BufferedReader br = null;
-		String line;
-		File file = new File("/proc");
-		File process;
-		String processName;
-		String[] processes = file.list((File current, String name) -> new File(
-				current, name).isDirectory());
-		for (int i = 0; i < processes.length; i++) {
-			if (processes[i].matches("[0-9]+")) {
-				process = new File("/proc/" + processes[i] + "/task");
-				String[] threads = process
-						.list((File current, String name) -> new File(current,
-								name).isDirectory());
-				processName = processes[i];
-				for (int j = 0; j < threads.length; j++) {
-					try {
-						File thread = new File("/proc/" + processName
-								+ "/task/" + threads[j] + "/status");
-						br = new BufferedReader(new FileReader(thread));
-						line = br.readLine();
-						String[] words = line.split(":\t");
-						if (words[1].equals(tName)) {
-							while ((line = br.readLine()) != null) {
-								words = line.split(":\t");
-								if (words[0].equals("Pid")) {
-									tid = Integer.parseInt(words[1]);
-									br.close();
-									return tid;
-								}
-							}
-						}
-					} catch (FileNotFoundException e) {
-						if (log.isErrorEnabled()) {
-							log.error(e);
-						}
-						if (br != null) {
-							br.close();
-						}
-						return -1;
-
-					} catch (IOException e) {
-						if (log.isErrorEnabled()) {
-							log.error(e);
-						}
-						if (br != null) {
-							br.close();
-						}
-						return -1;
-					}
-				}
-			}
-		}
-
-		if (br != null) {
-			br.close();
-		}
-
-		return -1;
-	}
-
-	/**
-	 * gets the available core/cpu count
-	 * 
-	 * @return number of available cores/cpu's
-	 */
 	@Override
 	public int getProcessorCount() {
 		return PALib.INSTANCE.getProcessorCount();
+	}
+
+	private Cache checkCache(int id, String name, int priority, int policy,
+			int[] affinity) {
+		for (Cache c : this.cache) {
+			if (c.getId() == id || c.getName().equals(name)) {
+				return c;
+			}
+		}
+		return null;
+	}
+
+	@Override
+	public void clearCache() {
+		this.cache.clear();
 	}
 }

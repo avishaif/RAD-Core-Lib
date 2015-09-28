@@ -15,7 +15,6 @@ import com.sun.jna.platform.win32.WinNT.HANDLE;
 
 import os_api.windows.Kernel32;
 import os_api.windows.Constants;
-import os_api.windows.THREADENTRY32;
 
 
 
@@ -37,6 +36,75 @@ public class WindowsServiceClass
 		log = LogManager.getRootLogger();
 		kernel32 = kernel32LibraryInstance;
 		numOfCpus = getNumberOfCpus();
+	}
+	
+	
+	/**
+	 * 
+	 * @param affinity
+	 * @param id
+	 * @param name
+	 * @return
+	 */
+	public static boolean checkParams(int[] affinity, int id, String name)
+	{
+		if(id != -1) // check by ID
+		{
+			if(id < 0)
+			{
+				if(log.isErrorEnabled())
+				{
+					log.error("Check parameters found an invalid ID: '" + id +"'.");
+				}
+				return false;
+			}
+		}
+		else if(id == -1) // check by name
+		{
+			if(name == null)
+			{
+				if (log.isErrorEnabled()) 
+				{
+					log.error("Check parameters found that name is null");
+				}
+				return false;
+			}
+			else if(name.equals(""))
+			{
+				if (log.isErrorEnabled()) 
+				{
+					log.error("Check parameters found that name is empty");
+				}
+				return false;
+			}
+		}
+		
+		if(affinity == null)
+		{
+			if (log.isErrorEnabled()) 
+			{
+				log.error("Check parameters found null array.");
+			}
+			return false;
+		}
+		else if(affinity.length == 0)
+		{
+			if(log.isErrorEnabled())
+			{
+				log.error("Check parameters found that no affinity values passed.");
+			}
+			return false;
+		}
+		else if(affinity.length > numOfCpus)
+		{
+			if(log.isErrorEnabled())
+			{
+				log.error("Check parameters found too many affinity values.");
+			}
+			return false;
+		}
+		
+		return true;
 	}
 	
 		
@@ -207,6 +275,31 @@ public class WindowsServiceClass
 	// end of getProcessIdByProcessName
 	
 	
+	public static String getProcessNameByProcessId(int pid)
+	{
+		Tlhelp32.PROCESSENTRY32.ByReference processEntry = new Tlhelp32.PROCESSENTRY32.ByReference();
+		WinNT.HANDLE snapshot = kernel32.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPPROCESS, new WinDef.DWORD(0));
+		
+		try 
+		{
+			// GET THE LIST OF RUNNING PROCESSES.
+			while (kernel32.Process32Next(snapshot, processEntry))
+		    {
+		    	if(processEntry.th32ProcessID.intValue() == pid)
+		    	{
+		    		return Native.toString(processEntry.szExeFile);
+		    	}
+		    }
+		}
+		finally 
+		{
+			kernel32.CloseHandle(snapshot);
+		}
+		return null;   		
+	}
+	// end of getProcessNameByProcessId
+
+	
 	/**
 	 * This method uses JNA. It returns an array of thread IDs.
 	 * @param processId - ID of a process.
@@ -214,7 +307,7 @@ public class WindowsServiceClass
 	 * @return array of threads IDs.
 	 */
 	/*
-	public static int[] getThreadIds(int processId, int numberOfThreads)
+	public static int[] getThreadIds(int processId)
 	{
 		int[] threadIds = null;
 		int i = 0;
@@ -227,14 +320,18 @@ public class WindowsServiceClass
 		{
 		    while (kernel32.Thread32Next(snapThread, threadEntry)) 
 		    {
+		    	System.out.println("ID: " + threadEntry.th32ThreadID);
 		    	if(threadEntry.th32OwnerProcessID == processId)
 		    	{
+		    		
 		    		if(threadIds == null && numberOfThreads != 0)
 		    		{
 		    			threadIds = new int[numberOfThreads];
 		    		}
-		    		threadIds[i] = threadEntry.th32ThreadID;
-		    		i++;
+		    		
+//		    		threadIds[i] = threadEntry.th32ThreadID;
+		    		System.out.println("thread ID: " + threadEntry.th32ThreadID);
+		    		
 		    	}
 		    }	
 		} 
@@ -244,8 +341,9 @@ public class WindowsServiceClass
 		}
 		return threadIds;
 	}
-	// end of getThreadIds
 	*/
+	// end of getThreadIds
+	
 	
 	
 	/**
@@ -256,119 +354,8 @@ public class WindowsServiceClass
     {
 		return Kernel32Util.formatMessageFromLastErrorCode(kernel32.GetLastError());
 	}
-	
-
-	
-	
-	
-	
-	
-	
-	//////////////////////
-	// METHODS TO DELETE.
-	//////////////////////
-	
-
-	/**
-	 * This method uses JNA. It checks by process ID if the process is running.
-	 * @param pid - process ID.
-	 * @return true if process is running.
-	 */
-	/*
-	public boolean checkProcessIsRunning(int pid)
-	{	
-		Kernel32 kernel32 = (Kernel32) Native.loadLibrary(Kernel32.class, W32APIOptions.UNICODE_OPTIONS);
-		Tlhelp32.PROCESSENTRY32.ByReference processEntry = new Tlhelp32.PROCESSENTRY32.ByReference();
-		WinNT.HANDLE snapshot = kernel32.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPPROCESS, new WinDef.DWORD(0));
-		try 
-		{
-			// GET THE LIST OF RUNNING PROCESSES.
-		    while (kernel32.Process32Next(snapshot, processEntry)) 
-		    {
-		    	// CHECK IF PROCESS IS RUNNING.
-		    	if(processEntry.th32ProcessID.intValue() == pid)
-		    	{
-		    		return true;
-		    	}	
-		    }		    
-		} 
-		finally 
-		{
-		    kernel32.CloseHandle(snapshot);
-		}
-		return false;
-	}
-	*/
-	
-	/**
-	 * This method uses JNA. It checks by process name if the process is running.
-	 * @param pName - process name.
-	 * @return true if process is running.
-	 */
-	/*
-	public boolean checkProcessIsRunning(String pName)
-	{	
-		Kernel32 kernel32 = (Kernel32) Native.loadLibrary(Kernel32.class, W32APIOptions.UNICODE_OPTIONS);
-		Tlhelp32.PROCESSENTRY32.ByReference processEntry = new Tlhelp32.PROCESSENTRY32.ByReference();
-		WinNT.HANDLE snapshot = kernel32.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPPROCESS, new WinDef.DWORD(0));
-		try 
-		{
-			// GET THE LIST OF RUNNING PROCESSES.
-		    while (kernel32.Process32Next(snapshot, processEntry)) 
-		    {
-		    	// CHECK IF PROCESS IS RUNNING.
-		    	if(Native.toString(processEntry.szExeFile).equals(pName))
-		    	{
-		    		return true;
-		    	}	
-		    }		    
-		} 
-		finally 
-		{
-		    kernel32.CloseHandle(snapshot);
-		}
-		return false;
-	}
-	*/
-	
-	
-	/**
-	 * This method uses JNA to retrieve process affinity.
-	 * @param pId - process id.
-	 * @return decimal value of process affinity mask which represents binary vector of CPUs on which the process is running (eg. mask = 3 -> binary vector = 11).
-	 */
-	/*
-	public int getProcessAffinity(int pid)
-	{	
-		int affinityMask = 0; // REPRESENTS BINARY VECTOR OF CPUS ON WHICH THE PROCESS IS RUNNING.
-		final LongByReference cpuset1 = new LongByReference(0); // PROCESS AFFINITY MASK
-        final LongByReference cpuset2 = new LongByReference(0); // SYSTEM AFFINITY MASK
-        processHandle = getProcessHandle(pid);
-			
-        try 
-        {   	
-            final int processAffinityMask = cLibrary.GetProcessAffinityMask(processHandle, cpuset1, cpuset2);
-            if (processAffinityMask < 0)
-            {
-                throw new IllegalStateException("sched_getaffinity((" + Long.SIZE / 8 + ") , &(" + cpuset1 + ") ) return " + processAffinityMask);
-            }    
-            affinityMask = (int)cpuset1.getValue();
-            return affinityMask;           
-        } 
-        catch (Exception e) 
-        {
-            e.printStackTrace();
-        }
-        
-        return affinityMask;
-	}
-	*/
-	
-
-
 }
-
-
+// end of class
 
 
 

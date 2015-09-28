@@ -3,6 +3,7 @@
 	<name>RAD-Core-Lib</name>
 	<comment></comment>
 	<projects>
+		<project>Rad.Core.Lib</project>
 	</projects>
 	<buildSpec>
 	</buildSpec>

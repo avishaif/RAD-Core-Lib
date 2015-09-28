@@ -1,6 +1,7 @@
 package handlers;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -9,10 +10,9 @@ import javathreadshandlers.JavaThreadHandlerWindows;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import cache.Cache;
+
 import com.sun.jna.Native;
-import com.sun.jna.platform.win32.Tlhelp32;
-import com.sun.jna.platform.win32.WinDef;
-import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.HANDLE;
 import com.sun.jna.win32.W32APIOptions;
 
@@ -25,6 +25,13 @@ import os_api.windows.Kernel32;
 
 public class WindowsHandler extends Handler
 {
+	private static final int INVALID_PRIORITY_VALUE = -999;
+	private static final int INVALID_POLICY_VALUE = -999;
+	private static final int INVALID_ID = -1;
+	private static final String INVALID_NAME = null;
+	private static final boolean CACHE_CHECKED = true;
+	private static final int[] INVALID_ARRAY = null;
+	
 	private JavaThreadHandlerWindows javaHandler;
 	private static Kernel32 kernel32;
 	private static int numberOfCpus;
@@ -37,21 +44,26 @@ public class WindowsHandler extends Handler
 		kernel32 = (Kernel32)Native.loadLibrary("kernel32", Kernel32.class, W32APIOptions.UNICODE_OPTIONS);
 		WindowsServiceClass.initServiceClass(kernel32);
 		numberOfCpus = WindowsServiceClass.getNumberOfCpus();
-		javaHandler = new JavaThreadHandlerWindows();
+		javaHandler = new JavaThreadHandlerWindows(kernel32);
+		this.cache = new ArrayList<>();
 	}
 	
 
-	/**
-	 * This method returns the number of CPUs installed in the system.
-	 * @return integer value representing the number of CPUs.
-	 */
+
 	@Override
 	public int getProcessorCount() 
 	{
 		return numberOfCpus;
 	}
 	
+	@Override
+	public void clearCache()
+	{
+		if(this.cache != null)
+			this.cache.clear();
+	}
 	
+/*	
 	protected static List<Integer> getAllJvmsId()
 	{
 		List<Integer> jvmIds = new ArrayList<Integer>();
@@ -79,101 +91,151 @@ public class WindowsHandler extends Handler
 		}
 		return jvmIds;
 	}
+*/	
+	
+	private Cache checkCache(int id, String name) 
+	{
+		for (Cache cache : this.cache) 
+		{
+			if (cache.getId() == id || cache.getName().equals(name)) 
+			{
+				return cache;
+			}
+		}
+		return null;
+	}
+
 	
 	
-    
 	
 /*--------------------------- SET AFFINITY -----------------------------------------------*/	
 	
 	/**
-	 * This method uses JNA to set process affinity by process ID.
-	 * In case set process affinity was unable to succeed, an error message will be written to log.
-	 * @param pid - process id.
-	 * @param affinity - array of CPUs.
-	 * @return true if affinity set successfully, false otherwise.
+	 * 
+	 * @param pid
+	 * @param affinity
+	 * @param checked
+	 * @return
 	 */
-	@Override
-	public boolean setProcessAffinity(int pid, int[] affinity)
-	{	
+	private boolean setProcessAffinity(int pid, int[] affinity, boolean checked)
+	{
 		boolean result = false;
-		int affinityMask = 0;
+		int affinityMask = WindowsServiceClass.getAffinityMask(affinity);
 		
-		if(pid < 0)
-		{
-			if(log.isErrorEnabled())
-			{
-				log.error("Failed to set affinity. Process is not running.");
-			}
-			return false;
-		}
-		if(affinity.length > numberOfCpus)
-		{
-			if(log.isErrorEnabled())
-			{
-				log.error("Failed to set affinity to process with ID " + pid + ". Too many affinity values.");
-			}
-			return false;
-		}
-		affinityMask = WindowsServiceClass.getAffinityMask(affinity);
 		if((affinityMask > numberOfCpus+1) || (affinityMask <= 0))
 		{
 			if(log.isErrorEnabled())
 			{
-				log.error("Failed to set affinity to process with ID " + pid + ". Trying to set process affinity on invalid CPU.");
+				log.error("Set process affinity failed to set affinity to process with ID " + pid + ". Trying to set process affinity on invalid CPU.");
 			}
 			return false;
-		}
-		
+		}		
 		HANDLE processHandle = WindowsServiceClass.getProcessHandle(pid);
 		if(processHandle == null)
 		{
 			if(log.isErrorEnabled())
 			{
-				log.error("Failed to set affinity to process with ID " + pid + ". The process is not running.");
+				log.error("Set process affinity failed to set affinity to process with ID " + pid + ". The process is not running.");
 			}
 			return false;
 		}
 		result = kernel32.SetProcessAffinityMask(processHandle, affinityMask);
 		if(!result && log.isErrorEnabled())
 		{
-			log.error("Failed to set affinity to process with ID " + pid + ". " + WindowsServiceClass.getLastErrorMessage());
+			log.error("Set process affinity failed to set affinity to process with ID " + pid + ". " + WindowsServiceClass.getLastErrorMessage());
 		}
-		
 		return result;
+	}
+
+	@Override
+	public boolean setProcessAffinity(int pid, int[] affinity)
+	{	
+		if(WindowsServiceClass.checkParams(affinity, pid, INVALID_NAME))
+		{
+			boolean result = false;
+			Cache cache = checkCache(pid, INVALID_NAME);
+			if(cache != null)
+			{
+				if(cache.getAffinity() != null)
+					Arrays.sort(cache.getAffinity());
+				Arrays.sort(affinity);
+				if(Arrays.equals(cache.getAffinity(), affinity))
+				{
+					return true;
+				}
+				else
+				{
+					result = setProcessAffinity(pid, affinity, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setAffinity(affinity);
+					}
+					return result;
+				}
+			}
+			else if(cache == null)
+			{
+				result = setProcessAffinity(pid, affinity, CACHE_CHECKED);
+				if(result) // affinity set, add to cache
+				{
+					String pname = WindowsServiceClass.getProcessNameByProcessId(pid);
+					this.cache.add(new Cache(pid, pname, affinity, INVALID_PRIORITY_VALUE, INVALID_POLICY_VALUE));
+				}
+				return result;
+			}
+		}
+		return false;		
 	}
 	// end of setProcessAffinity
 	
-	
-	/**
-	 * This method uses JNA to set process affinity by process name.
-	 * In case set process affinity was unable to succeed, an error message will be written to log.
-	 * @param pName - process name.
-	 * @param affinity - array of CPUs.
-	 * @return true if affinity set successfully, false otherwise.
-	 */
+
 	@Override
 	public boolean setProcessAffinity(String pName, int[] affinity) 
 	{
+		int processId = -1;
 		boolean result = false;
-		int processId = WindowsServiceClass.getProcessIdByProcessName(pName);
-		result = setProcessAffinity(processId, affinity);
-		if(!result && log.isErrorEnabled())
+		
+		if(WindowsServiceClass.checkParams(affinity, INVALID_ID, pName))
 		{
-			log.error("Failed to set affinity to process " + pName + ". ID " + processId);
+			Cache cache = checkCache(INVALID_ID, pName);
+			processId = WindowsServiceClass.getProcessIdByProcessName(pName);
+			if(cache != null)
+			{
+				if(cache.getAffinity() != null)
+					Arrays.sort(cache.getAffinity());
+				Arrays.sort(affinity);
+				if(Arrays.equals(cache.getAffinity(), affinity))
+				{
+					return true;
+				}
+				else // affinities are different
+				{
+					result = setProcessAffinity(processId, affinity, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setAffinity(affinity);
+					}
+				}
+			}
+			else if(null == cache)
+			{
+				result = setProcessAffinity(processId, affinity, CACHE_CHECKED);
+				if(result) // affinity set, add to cache
+				{
+					this.cache.add(new Cache(processId, pName, affinity, INVALID_PRIORITY_VALUE, INVALID_POLICY_VALUE));
+				}
+			}
+			if(!result && log.isErrorEnabled())
+			{
+				log.error("Set process affinity failed to set affinity to process " + pName + " with ID " + processId);
+			}
+			return result;
 		}
-		return result;
+		return false;
 	}
 	// end of setProcessAffinity
+
 	
-	
-	
-	/**
-	 * This method set affinity for a list of processes. Affinity will be set for each process. 
-	 * If a process has threads, their affinity will be set as well.
-	 * In case set process affinity or set thread affinity was unable to succeed, an error message will be written to log.
-	 * @param processes - a collection of processes of ProcessData type.
-	 * @return a list of results. Each result is a Results class type.
-	 */
 	@Override
 	public List<Results> setProcessAffinity(Collection<ProcessData> processes)
 	{
@@ -225,38 +287,14 @@ public class WindowsHandler extends Handler
 		return results;
 	}
 	// end of setProcessAffinity
-	
 
-	/**
-	 * This method uses JNA to set native thread affinity by thread ID.
-	 * In case set thread affinity was unable to succeed, an error message will be written to log.
-	 * @param tid - Native thread ID.
-	 * @param affinity - Array of CPUs.
-	 * @return true if affinity set successfully, false otherwise.
-	 */
-	@Override
-	public  boolean setNativeThreadAffinity(int tid, int[] affinity) 
+
+	
+	private boolean setNativeThreadAffinity(int tid, int[] affinity, boolean checked)
 	{
 		boolean result = false;
 		int affinityMask = 0;
-		
-		if(tid < 0)
-		{
-			if(log.isErrorEnabled())
-			{
-				log.error("Failed to set affinity. Thread not found.");
-			}
-			return false;
-		}
-		if(affinity.length > numberOfCpus)
-		{
-			if(log.isErrorEnabled())
-			{
-				log.error("Failed to set affinity to native thread with ID " + tid + ". Too many affinity values.");
-			}
-			return false;
-		}
-		
+			
 		affinityMask = WindowsServiceClass.getAffinityMask(affinity);
 		if((affinityMask > numberOfCpus+1) || (affinityMask <= 0))
 		{
@@ -283,43 +321,51 @@ public class WindowsHandler extends Handler
 		}
 		return result;
 	}
-	// end of setThreadAffinity
 	
-	
-	
-	/**
-	 * 
-	 * 
-	 * In case set thread affinity was unable to succeed, an error message will be written to log.
-	 * @param tid - Java thread ID.
-	 * @param affinity - Array of CPUs.
-	 * @return true if affinity set successfully, false otherwise.
-	 */
+
 	@Override
-	public  boolean setJavaThreadAffinity(int tid, int[] affinity) 
+	public  boolean setNativeThreadAffinity(int tid, int[] affinity) 
 	{
-		List<Integer> jvmIds = getAllJvmsId();
-		int id = javaHandler.getNativeThreadId(tid, jvmIds);
-		if(id == -1) // thread not found.
+		if(WindowsServiceClass.checkParams(affinity, tid, INVALID_NAME))
 		{
-			if(log.isErrorEnabled())
+			boolean result = false;
+			Cache tCache = checkCache(tid, INVALID_NAME);
+			if(tCache != null)
 			{
-				log.error("Failed to set affinity to java thread " + tid);
+				if(tCache.getAffinity() != null)
+				{
+					Arrays.sort(tCache.getAffinity());
+				}
+				Arrays.sort(affinity);
+				if(Arrays.equals(tCache.getAffinity(), affinity))
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadAffinity(tid, affinity, CACHE_CHECKED);
+					if(result)
+					{
+						tCache.setAffinity(affinity);
+					}
+					return result;
+				}
 			}
-			return false;
+			else if(null == tCache)
+			{
+				result = setNativeThreadAffinity(tid, affinity, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(tid, INVALID_NAME, affinity, INVALID_PRIORITY_VALUE, INVALID_POLICY_VALUE));
+				}
+				return result;
+			}
 		}
-		return setNativeThreadAffinity(id, affinity);
+		return false;
 	}
-	// end of setThreadAffinity
+	// end of setNativeThreadAffinity
 	
-	
-	/** 
-	 * This method will return false because thread names are unknown in Windows.
-	 * An error message will be written to log.
-	 * @param tName - Thread name.
-	 * @param affinity - Array of CPUs.
-	 * @return true if affinity set successfully, false otherwise.  
-	 */
+
 	@Override
 	public  boolean setNativeThreadAffinity(String tName, int[] affinity) 
 	{
@@ -332,38 +378,26 @@ public class WindowsHandler extends Handler
 	// end of setNativeThreadAffinity 
 	
 	
-	/**
-	 * This method will search for the thread in all available JVMs. If the thread exists, it will get it's native ID and set it's affinity with native ID.
-	 * @param tName - Thread name.
-	 * @param affinity - Array of CPUs.
-	 * @return true if affinity set successfully, false otherwise.  
-	 */
+	/*
 	@Override
-	public  boolean setJavaThreadAffinity(String tName, int[] affinity) 
+	public boolean setNativeThreadAffinity(int pid, int tid, int[] affinity)
 	{
-		List<Integer> jvmIds = getAllJvmsId();
-		int tid = javaHandler.getNativeThreadId(tName, jvmIds);		
-		if(tid == -1) // thread not found.
-		{
-			if(log.isErrorEnabled())
-			{
-				log.error("Failed to set affinity to java thread " + tName);
-			}
-			return false;
-		}
-//		System.out.println("thread " + tName + " with native ID " + tid + " found.");
-		return setNativeThreadAffinity(tid, affinity);
+		return false;
 	}
-	// end of setJavaThreadAffinity
+	*/
+
+
+	@Override
+	public boolean setNativeThreadAffinity(String pName, String tName, int[] affinity)
+	{
+		if(log.isErrorEnabled())
+		{
+			log.error("Failed to set affinity to thread " + tName + " under process " + pName + ". Windows was unable to determine thread name.");
+		}
+		return false;
+	}
 	
-	
-	
-	/**
-	 * This method set affinity for a list of threads. Affinity will be set for each thread. 
-	 * In case set thread affinity was unable to succeed, an error message will be written to log.
-	 * @param threads - a collection of threads of ThreadData type.
-	 * @return a list of results. Each result is a Results class type. 
-	 */
+
 	@Override
 	public List<Results> setNativeThreadAffinity(Collection<ThreadData> threads)
 	{
@@ -406,18 +440,199 @@ public class WindowsHandler extends Handler
 	}
 	// end of setThreadAffinity
 	
+
+	@Override
+	public  boolean setJavaThreadAffinity(int tid, int[] affinity)
+	{
+		if(WindowsServiceClass.checkParams(affinity, tid, INVALID_NAME))
+		{
+			boolean result = false;
+			String tName = javaHandler.getThreadName(tid);
+			Cache cache = checkCache(INVALID_ID, tName);
+			if(cache != null)
+			{
+				if(cache.getAffinity() != null)
+				{
+					Arrays.sort(cache.getAffinity());
+				}
+				Arrays.sort(affinity);
+				if(Arrays.equals(cache.getAffinity(), affinity))
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadAffinity(cache.getId(), affinity, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setAffinity(affinity);
+					}
+					return result;
+				}
+			}
+			else if(null == cache)
+			{
+				int nid = javaHandler.getNativeThreadId(tName);
+				if(nid == -1) // thread not found.
+				{
+					if(log.isErrorEnabled())
+					{
+						log.error("Failed to set affinity to java thread " + tid);
+					}
+					return false;
+				}
+				result = setNativeThreadAffinity(nid, affinity, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(nid, tName, affinity, INVALID_PRIORITY_VALUE, INVALID_POLICY_VALUE));
+				}
+				return result;
+			}		
+		}
+		return false;
+	}
+	// end of setThreadAffinity
+	
+	
+	@Override
+	public  boolean setJavaThreadAffinity(String tName, int[] affinity) 
+	{
+		if(WindowsServiceClass.checkParams(affinity, INVALID_ID, tName))
+		{
+			int nid = -1;
+			boolean result = false;
+			Cache cache = checkCache(INVALID_ID, tName);
+			if(cache != null)
+			{
+				if(cache.getAffinity() != null)
+				{
+					Arrays.sort(cache.getAffinity());
+				}
+				Arrays.sort(affinity);
+				if(Arrays.equals(cache.getAffinity(), affinity))
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadAffinity(cache.getId(), affinity, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setAffinity(affinity);
+					}
+					nid = cache.getId();
+				}
+			}
+			else if(null == cache)
+			{
+				nid = javaHandler.getNativeThreadId(tName);		
+				if(nid == -1) // thread not found.
+				{
+					if(log.isErrorEnabled())
+					{
+						log.error("Failed to set affinity to java thread " + tName);
+					}
+					return false;
+				}
+				result = setNativeThreadAffinity(nid, affinity, CACHE_CHECKED);
+				if(result)
+				{
+					// get java thread id by tName and add it to cache
+					this.cache.add(new Cache(nid, tName, affinity, INVALID_PRIORITY_VALUE, INVALID_POLICY_VALUE));
+				}
+			}
+			if(!result && log.isErrorEnabled())
+			{
+				log.error("Set java thread affinity failed to set affinity to thread " + tName + " with native ID " + nid);
+			}
+			return result;
+		}
+		return false;
+	}
+	// end of setJavaThreadAffinity
+	
+	
+	/*
+	@Override
+	public boolean setJavaThreadAffinity(int pid, int tid, int[] affinity)
+	{
+		List<Integer> jvm = new ArrayList<Integer>();
+		jvm.add(pid);
+		int id = javaHandler.getNativeThreadId(tid);
+		if(id == -1) // thread not found.
+		{
+			if(log.isErrorEnabled())
+			{
+				log.error("Failed to set affinity to java thread " + tid);
+			}
+			return false;
+		}
+		return setNativeThreadAffinity(id, affinity);
+	}
+	*/
+
+
+	@Override	
+	public boolean setJavaThreadAffinity(String pName, String tName, int[] affinity)
+	{
+		if(WindowsServiceClass.checkParams(affinity, INVALID_ID, tName) && pName != null && pName != "")
+		{
+			int nid = -1;
+			boolean result = false;
+			Cache cache = checkCache(INVALID_ID, tName);
+			if(cache != null)
+			{
+				if(cache.getAffinity() != null)
+				{
+					Arrays.sort(cache.getAffinity());
+				}
+				Arrays.sort(affinity);
+				if(Arrays.equals(cache.getAffinity(), affinity))
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadAffinity(cache.getId(), affinity, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setAffinity(affinity);
+					}
+					nid = cache.getId();
+				}
+			}
+			else if(null == cache)
+			{
+				int pid = WindowsServiceClass.getProcessIdByProcessName(pName);
+				nid = javaHandler.getNativeThreadId(tName, pid);
+				if(nid == -1) // thread not found.
+				{
+					if(log.isErrorEnabled())
+					{
+						log.error("Failed to set affinity to java thread " + tName);
+					}
+					return false;
+				}
+				result = setNativeThreadAffinity(nid, affinity, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(nid, tName, affinity, INVALID_PRIORITY_VALUE, INVALID_POLICY_VALUE));
+				}
+			}
+			if(!result && log.isErrorEnabled())
+			{
+				log.error("Set java thread affinity failed to set affinity to thread " + tName + " with native ID " + nid);
+			}
+			return result;
+		}
+		return false;		
+	}
+	
+	
 	
 /*--------------------------- SET PRIORITY -----------------------------------------------*/	
 	
-	/**
-	 * This method uses JNA to set process priority class.
-	 * In case set process priority was unable to succeed, an error message will be written to the log. 
-	 * @param pid - process id.
-	 * @param priority - process priority value.
-	 * @return true if priority set successfully, false otherwise.
-	 */
-	@Override
-	public boolean setProcessPriority(int pid, int policy, int priority)
+	private boolean setProcessPriority(int pid, int policy, int priority, boolean checked)
 	{
 		boolean result = false;
 		HANDLE processHandle = WindowsServiceClass.getProcessHandle(pid);
@@ -439,36 +654,90 @@ public class WindowsHandler extends Handler
 	// end of setProcessPriority
 	
 
-	/**
-	 * This method set process priority class by process name.
-	 * In case set process priority was unable to succeed, an error message will be written to the log.
-	 * @param pName - process name.
-	 * @param priority - process priority value.
-	 * @return true if priority set successfully, false otherwise.
-	 */
+
+	@Override
+	public boolean setProcessPriority(int pid, int policy, int priority)
+	{
+		if(pid > 0)
+		{
+			boolean result = false;
+			Cache cache = checkCache(pid, INVALID_NAME);
+			if(cache != null)
+			{
+				if(cache.getPriority() == priority)
+				{
+					return true;
+				}
+				else
+				{
+					result = setProcessPriority(pid, policy, priority, CACHE_CHECKED);
+					if(result) 
+					{
+						cache.setPriority(priority);
+					}
+					return result;
+				}
+			}
+			else if(null == cache)
+			{
+				result = setProcessPriority(pid, policy, priority, CACHE_CHECKED);
+				if(result)
+				{
+					String pname = WindowsServiceClass.getProcessNameByProcessId(pid);
+					this.cache.add(new Cache(pid, pname, INVALID_ARRAY, priority, policy));
+				}
+				return result;
+			}
+		}
+		return false;
+	}
+	// end of setProcessPriority
+	
+
 	@Override
 	public  boolean setProcessPriority(String pName, int policy, int priority) 
 	{
-		boolean result = false;
-		int processId = WindowsServiceClass.getProcessIdByProcessName(pName);
-		result = setProcessPriority(processId, policy, priority);
-		if(!result && log.isErrorEnabled())
+		if(pName != null && pName != "")
 		{
-			log.error("Failed to set priority to process " + pName + ".");
+			boolean result = false;
+			int processId = -1;
+			Cache cache = checkCache(INVALID_ID, pName);
+			if(cache != null)
+			{
+				if(cache.getPriority() == priority)
+				{
+					return true;
+				}
+				else
+				{
+					processId = cache.getId();
+					result = setProcessPriority(processId, policy, priority, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setPriority(priority);
+					}
+				}
+			}
+			else if(null == cache)
+			{
+				processId = WindowsServiceClass.getProcessIdByProcessName(pName);
+				result = setProcessPriority(processId, policy, priority, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(processId, pName, INVALID_ARRAY, priority, policy));
+				}
+			}
+			if(!result && log.isErrorEnabled())
+			{
+				log.error("Set process priority failed to set priority to process " + pName + " with ID " + processId);
+			}
+			return result;
 		}
-		
-		return result;
+		return false;
 	}
 	// end of setProcessPriority
 	
 	
-	/**
-	 * This method set priority class for a list of processes. priority class will be set for each process. 
-	 * If a process has threads, their priority level will be set as well.
-	 * In case set process priority or set thread priority was unable to succeed, an error message will be written to the log.
-	 * @param processes - a collection of processes of ProcessData type.
-	 * @return a list of results. Each result is a Results class type.
-	 */
 	@Override
 	public List<Results> setProcessPriority(Collection<ProcessData> processes)
 	{
@@ -516,7 +785,6 @@ public class WindowsHandler extends Handler
     	        			result.addThread(thread.getName(), setNativeThreadPriority(thread.getName(), thread.getPolicy(), thread.getPriority()));
     	        	}
     	        }
-    			
             }
     		results.add(result);
         }
@@ -525,16 +793,7 @@ public class WindowsHandler extends Handler
 	//end of setProcessPriority
 	
 	
-	
-	/**
-	 * This method uses JNA to set native thread priority level by thread ID.
-	 * In case set thread priority was unable to succeed, an error message will be written to the log.
-	 * @param tid - Native thread ID.
-	 * @param priority - Thread priority value.
-	 * @return true if priority set successfully, false otherwise.
-	 */
-	@Override
-	public  boolean setNativeThreadPriority(int tid, int policy, int priority) 
+	private boolean setNativeThreadPriority(int tid, int policy, int priority, boolean checked)
 	{
 		boolean result = false;
 		HANDLE threadHandle = WindowsServiceClass.getThreadHandle(tid);
@@ -553,41 +812,46 @@ public class WindowsHandler extends Handler
 		}
 		return result;
 	}
+	
+
+	@Override
+	public  boolean setNativeThreadPriority(int nid, int policy, int priority) 
+	{
+		if(nid > 0)
+		{
+			boolean result = false;
+			Cache tCache = checkCache(nid, INVALID_NAME);
+			if(tCache != null)
+			{
+				if(tCache.getPriority() == priority)
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadPriority(nid, policy, priority, CACHE_CHECKED);
+					if(result)
+					{
+						tCache.setPriority(priority);
+					}
+					return result;
+				}
+			}
+			else if(null == tCache)
+			{
+				result = setNativeThreadPriority(nid, policy, priority, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(nid, INVALID_NAME, INVALID_ARRAY, priority, policy));
+				}
+				return result;
+			}
+		}
+		return false;
+	}
 	// end of setNativeThreadPriority
 	
-	
-	
-	/**
-	 * This method will search for the thread in all available JVMs. If the thread exists, it will get it's native ID and set it's priority with native ID.
-	 * @param tid - Java thread ID.
-	 * @param priority - Thread priority value.
-	 * @return true if priority set successfully, false otherwise.
-	 */
-	@Override
-	public  boolean setJavaThreadPriority(int tid, int policy, int priority) 
-	{
-		List<Integer> jvmIds = getAllJvmsId();
-		int id = javaHandler.getNativeThreadId(tid, jvmIds);
-		if(id == -1 ) // thread not found.
-		{
-			if(log.isErrorEnabled())
-			{
-				log.error("Failed to set priority to java thread " + tid);
-			}
-			return false;
-		}
-		return setNativeThreadPriority(tid, policy, priority);
-	}
-	// end of setJavaThreadPriority
-	
-	
-	/** 
-	 * This method will return false because thread names are unknown in Windows.
-	 * An error message will be written to log.
-	 * @param tName - Thread name.
-	 * @param priority - thread priority value.
-	 * @return true if affinity set successfully, false otherwise.  
-	 */
+
 	@Override
 	public  boolean setNativeThreadPriority(String tName, int policy, int priority) 
 	{
@@ -597,39 +861,41 @@ public class WindowsHandler extends Handler
 		}
 		return false;
 	}
-	// end of setNativeThreadAffinity 
+	// end of setNativeThreadPriority
 	
 	
-	/**
-	 * This method will search for the thread in all available JVMs. If the thread exists, it will get it's native ID and set it's priority with native ID.
-	 * @param tName - thread name.
-	 * @param priority - thread priority value.
-	 * @return true if priority set successfully, false otherwise.
-	 */
+	/*
 	@Override
-	public  boolean setJavaThreadPriority(String tName, int policy, int priority) 
-	{	
-		List<Integer> jvmIds = getAllJvmsId();
-		int tid = javaHandler.getNativeThreadId(tName, jvmIds);		
-		if(tid == -1) // thread not found.
-		{
-			if(log.isErrorEnabled())
-			{
-				log.error("Failed to set priority to java thread " + tName);
-			}
-			return false;		
-		}
-		return setNativeThreadPriority(tid, policy, priority);
+	public boolean setNativeThreadPriority(int pid, int tid, int policy, int priority)
+	{
+		// TODO Auto-generated method stub
+		return false;
 	}
-	// end of setJavaThreadPriority
+*/
+	
 
-
-	/**
-	 * This method set priority level for a list of threads. Priority level will be set for each thread. 
-	 * In case set thread priority was unable to succeed, an error message will be written to the log.
-	 * @param threads - a collection of threads of ThreadData type.
-	 * @return a list of results. Each result is a Results class type. 
-	 */
+	@Override
+	public boolean setNativeThreadPriority(String pName, String tName, int policy, int priority)
+	{
+		if(log.isErrorEnabled())
+		{
+			log.error("Failed to set priority to thread " + tName + ". Windows was unable to determine thread name.");
+		}
+		return false;
+	}
+	
+	
+	@Override
+	public boolean setNativeThreadPriority(int pid, String tName, int policy, int priority)
+	{
+		if(log.isErrorEnabled())
+		{
+			log.error("Failed to set affinity to thread " + tName + ". Windows was unable to determine thread name.");
+		}
+		return false;
+	}
+	
+	
 	@Override
 	public List<Results> setNativeThreadPriority(Collection<ThreadData> threads)
 	{
@@ -670,74 +936,234 @@ public class WindowsHandler extends Handler
 		
 		return results;
 	}
-	// end of setThreadPriority
-
+	// end of setNativeThreadPriority
+	
 
 	@Override
-	public boolean setNativeThreadAffinity(String pName, String tName,
-			int[] affinity) {
-		// TODO Auto-generated method stub
+	public  boolean setJavaThreadPriority(int tid, int policy, int priority) 
+	{
+		if(tid > 0)
+		{
+			boolean result = false;
+			String tName = javaHandler.getThreadName(tid);
+			Cache cache = checkCache(INVALID_ID, tName);
+			if(cache != null)
+			{
+				if(cache.getPriority() == priority)
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadPriority(cache.getId(), policy, priority, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setPriority(priority);
+					}
+					return result;
+				}
+			}
+			else if(null == cache)
+			{
+				int nid = javaHandler.getNativeThreadId(tName);
+				if(nid == -1 ) // thread not found.
+				{
+					if(log.isErrorEnabled())
+					{
+						log.error("Failed to set priority to java thread " + tid);
+					}
+					return false;
+				}
+				result = setNativeThreadPriority(nid, policy, priority, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(nid, tName, INVALID_ARRAY, priority, policy));
+				}
+				return result;
+			}
+		}
+		return false;
+	}
+	// end of setJavaThreadPriority
+	
+
+	@Override
+	public  boolean setJavaThreadPriority(String tName, int policy, int priority) 
+	{
+		if(tName != null && tName != "")
+		{
+			int nid = -1;
+			boolean result = false;
+			Cache cache = checkCache(INVALID_ID, tName);
+			if(cache != null)
+			{
+				if(cache.getPriority() == priority)
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadPriority(cache.getId(), policy, priority, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setPriority(priority);
+					}
+					nid = cache.getId();
+				}
+			}
+			else if(null == cache)
+			{
+				nid = javaHandler.getNativeThreadId(tName);		
+				if(nid == -1) // thread not found.
+				{
+					if(log.isErrorEnabled())
+					{
+						log.error("Failed to set priority to java thread " + tName);
+					}
+					return false;		
+				}
+				result = setNativeThreadPriority(nid, policy, priority, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(nid, tName, INVALID_ARRAY, priority, policy));
+				}
+			}
+			if(!result && log.isErrorEnabled())
+			{
+				log.error("Set java thread priority failed to set priority to thread " + tName + " with native ID " + nid);
+			}
+			return result;
+		}
+		return false;
+	}
+	// end of setJavaThreadPriority
+	
+	
+	/*
+	@Override
+	public boolean setJavaThreadPriority(int pid, int tid, int policy, int priority)
+	{
+		List<Integer> jvm = new ArrayList<Integer>();
+		jvm.add(pid);
+		int id = javaHandler.getNativeThreadId(tid);
+		if(id == -1) // thread not found.
+		{
+			if(log.isErrorEnabled())
+			{
+				log.error("Failed to set priority to java thread " + tid);
+			}
+			return false;		
+		}
+		return setNativeThreadPriority(id, policy, priority);
+	}
+*/
+
+	
+	@Override
+	public boolean setJavaThreadPriority(String pName, String tName, int policy, int priority)
+	{
+		if(pName != null && pName != "" && tName != null && tName != "")
+		{
+			boolean result = false;
+			int nid = -1;
+			int pid = -1;
+			Cache cache = checkCache(INVALID_ID, tName);
+			if(cache != null)
+			{
+				if(cache.getPriority() == priority)
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadPriority(cache.getId(), policy, priority, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setPriority(priority);
+					}
+					nid = cache.getId();
+				}
+			}
+			else if(null == cache)
+			{
+				pid = WindowsServiceClass.getProcessIdByProcessName(pName);
+				nid = javaHandler.getNativeThreadId(tName, pid);
+				if(nid == -1) // thread not found.
+				{
+					if(log.isErrorEnabled())
+					{
+						log.error("Failed to set priority to java thread " + tName);
+					}
+					return false;		
+				}
+				result = setNativeThreadPriority(nid, policy, priority, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(nid, tName, INVALID_ARRAY, priority, policy));
+				}
+			}
+			if(!result && log.isErrorEnabled())
+			{
+				log.error("Set java thread priority failed to set priority to thread " + tName + " with native ID " + nid);
+			}
+			return result;
+		}
 		return false;
 	}
 
-
+	
 	@Override
-	public boolean setJavaThreadAffinity(int pid, int tid, int[] affinity) {
-		// TODO Auto-generated method stub
+	public boolean setJavaThreadPriority(int pid, String tName, int policy, int priority)
+	{
+		if(pid > 0 && tName != null && tName != "")
+		{
+			boolean result = false;
+			int nid = -1;
+			Cache cache = checkCache(INVALID_ID, tName);
+			if(cache != null)
+			{
+				if(cache.getPriority() == priority)
+				{
+					return true;
+				}
+				else
+				{
+					result = setNativeThreadPriority(cache.getId(), policy, priority, CACHE_CHECKED);
+					if(result)
+					{
+						cache.setPriority(priority);
+					}
+					nid = cache.getId();
+				}
+			}
+			else if(null == cache)
+			{
+				nid = javaHandler.getNativeThreadId(tName, pid);
+				if(nid == -1) // thread not found.
+				{
+					if(log.isErrorEnabled())
+					{
+						log.error("Failed to set priority to java thread " + tName);
+					}
+					return false;		
+				}
+				result = setNativeThreadPriority(nid, policy, priority, CACHE_CHECKED);
+				if(result)
+				{
+					this.cache.add(new Cache(nid, tName, INVALID_ARRAY, priority, policy));
+				}
+			}
+			if(!result && log.isErrorEnabled())
+			{
+				log.error("Set java thread priority failed to set pririty to thread " + tName + " with native ID " + nid);
+			}
+			return result;
+		}
 		return false;
 	}
-
-
-	@Override
-	public boolean setJavaThreadAffinity(String pName, String tName,
-			int[] affinity) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-
-	@Override
-	public boolean setNativeThreadPriority(String pName, String tName,
-			int policy, int priority) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-
-	@Override
-	public boolean setNativeThreadPriority(int pid, String tName, int policy,
-			int priority) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-
-	@Override
-	public boolean setJavaThreadPriority(int pid, int tid, int policy,
-			int priority) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-
-	@Override
-	public boolean setJavaThreadPriority(String pName, String tName,
-			int policy, int priority) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-
-	@Override
-	public boolean setJavaThreadPriority(int pid, String tName, int policy,
-			int priority) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-		
+	
 }
 // end of class
-
 
 
 
