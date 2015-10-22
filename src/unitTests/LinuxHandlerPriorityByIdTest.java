@@ -18,6 +18,7 @@ import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
 import handlers.LinuxHandler;
+import normalizers.Normalizer;
 
 
 
@@ -29,13 +30,12 @@ import handlers.LinuxHandler;
 public class LinuxHandlerPriorityByIdTest {
 
     private int priority;
-    private int policy;
     private int id;
     private boolean expected;
     private LinuxHandler handler;
+	private Normalizer normalizer;
 
-    public LinuxHandlerPriorityByIdTest(boolean expected, int id, int policy, int priority) {
-        this.policy = policy;
+    public LinuxHandlerPriorityByIdTest(boolean expected, int id, int priority) {
         this.priority = priority;
         this.expected = expected;
         this.id = id;
@@ -44,20 +44,19 @@ public class LinuxHandlerPriorityByIdTest {
     @Parameters
     public static Collection<Object[]> setProcessAffinityId() {
         return Arrays.asList(new Object[][]{
-            {false, -1, 0, 0},
-            {false, 1, -1, 0},
-            {false, 1, 3, 0},
-            {false, 1, 0, -21},
-            {false, 1, 0, 20},
-            {false, 1, 1, 0},
-            {false, 1, 1, 100},
-            {false, 1, 0, 0},
+            {false, -1, 1},
+            {false, -1, 0},
+            {false, 1, 0},
+            {false, 1, 101},
+            {false, 1, 100},
+            {false, 1, 1},
             });
     }
     
     @Before
     public void init(){
-    	handler = new LinuxHandler();
+    	normalizer = new Normalizer("Linux");
+    	handler = new LinuxHandler(normalizer);
     }
 
     /**
@@ -66,7 +65,7 @@ public class LinuxHandlerPriorityByIdTest {
     @Test
     public void testSetProcessPriority__int_int_int() {
         System.out.println("setProcessPriority");
-        assertEquals(expected, handler.setProcessPriority(id, policy, priority));
+        assertEquals(expected, handler.setProcessPriority(id, priority));
     }
 
     /**
@@ -75,6 +74,6 @@ public class LinuxHandlerPriorityByIdTest {
     @Test
     public void testSetThreadPriority_int_int_int() {
         System.out.println("setThreadPriority");
-        assertEquals(expected, handler.setNativeThreadPriority(id, policy, priority));
+        assertEquals(expected, handler.setNativeThreadPriority(id, priority));
     }
 }

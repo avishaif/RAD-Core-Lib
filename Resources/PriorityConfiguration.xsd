@@ -1,0 +1,157 @@
+<xs:schema attributeFormDefault="unqualified"
+	elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+	<xs:element name="OperatingSystem">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="Linux">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="SchedulingPolicies">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="Asynchronized">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="priority" maxOccurs="unbounded"
+														minOccurs="0">
+														<xs:complexType>
+															<xs:simpleContent>
+																<xs:extension base="xs:string">
+																	<xs:attribute type="xs:byte" name="display"
+																		use="optional" />
+																	<xs:attribute type="xs:byte" name="value"
+																		use="optional" />
+																</xs:extension>
+															</xs:simpleContent>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+												<xs:attribute type="xs:byte" name="PolicyValue" />
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="SoftRT">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="priority" maxOccurs="unbounded"
+														minOccurs="0">
+														<xs:complexType>
+															<xs:simpleContent>
+																<xs:extension base="xs:string">
+																	<xs:attribute type="xs:short" name="display"
+																		use="optional" />
+																	<xs:attribute type="xs:byte" name="value"
+																		use="optional" />
+																</xs:extension>
+															</xs:simpleContent>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+												<xs:attribute type="xs:byte" name="PolicyValue" />
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="HardRT">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="priority" maxOccurs="unbounded"
+														minOccurs="0">
+														<xs:complexType>
+															<xs:simpleContent>
+																<xs:extension base="xs:string">
+																	<xs:attribute type="xs:short" name="display"
+																		use="optional" />
+																	<xs:attribute type="xs:byte" name="value"
+																		use="optional" />
+																</xs:extension>
+															</xs:simpleContent>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+												<xs:attribute type="xs:byte" name="PolicyValue" />
+											</xs:complexType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+						<xs:attribute type="xs:string" name="OSName" />
+						<xs:attribute type="xs:string" name="isActive" />
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Windows">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="SchedulingPolicies">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="Asynchronized">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="priority" maxOccurs="unbounded"
+														minOccurs="0">
+														<xs:complexType>
+															<xs:simpleContent>
+																<xs:extension base="xs:string">
+																	<xs:attribute type="xs:byte" name="display"
+																		use="optional" />
+																	<xs:attribute type="xs:byte" name="value"
+																		use="optional" />
+																</xs:extension>
+															</xs:simpleContent>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+												<xs:attribute type="xs:byte" name="PolicyValue" />
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="SoftRT">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="priority" maxOccurs="unbounded"
+														minOccurs="0">
+														<xs:complexType>
+															<xs:simpleContent>
+																<xs:extension base="xs:string">
+																	<xs:attribute type="xs:short" name="display"
+																		use="optional" />
+																	<xs:attribute type="xs:byte" name="value"
+																		use="optional" />
+																</xs:extension>
+															</xs:simpleContent>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+												<xs:attribute type="xs:byte" name="PolicyValue" />
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="HardRT">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="priority" maxOccurs="unbounded"
+														minOccurs="0">
+														<xs:complexType>
+															<xs:simpleContent>
+																<xs:extension base="xs:string">
+																	<xs:attribute type="xs:short" name="display"
+																		use="optional" />
+																	<xs:attribute type="xs:byte" name="value"
+																		use="optional" />
+																</xs:extension>
+															</xs:simpleContent>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+												<xs:attribute type="xs:byte" name="PolicyValue" />
+											</xs:complexType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+						<xs:attribute type="xs:string" name="OSName" />
+						<xs:attribute type="xs:string" name="isActive" />
+					</xs:complexType>
+				</xs:element>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

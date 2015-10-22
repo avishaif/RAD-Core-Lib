@@ -17,6 +17,7 @@ import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
 import handlers.LinuxHandler;
+import normalizers.Normalizer;
 
 
 
@@ -30,6 +31,7 @@ public class LinuxHandlerAffinityByNameTest {
     private String name;
     private boolean expected;
     private LinuxHandler handler;
+    Normalizer normalizer;
     public LinuxHandlerAffinityByNameTest(boolean expected,String name , int[] affinity) {
         this.expected = expected;
         this.name = name;
@@ -50,7 +52,8 @@ public class LinuxHandlerAffinityByNameTest {
     @Before
     public void init()
     {
-    	handler = new LinuxHandler();
+    	normalizer = new Normalizer("Linux");
+    	handler = new LinuxHandler(normalizer);
     }
      /**
      * Test of setProcessAffinity method, of class LinuxHandler.

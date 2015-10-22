@@ -12,58 +12,20 @@ import org.apache.logging.log4j.Logger;
 
 public abstract class JavaThreadHandler {
 	static ThreadGroup rootThreadGroup = null;
-	static Logger log = LogManager.getRootLogger();
+	Logger log = LogManager.getRootLogger();
 
-	public abstract List<Integer> getAllJvmsPids(); 
-
-	/**
-	 * Retrieve all threads on hosting jvm
-	 * 
-	 * @return Thread Array: threads
-	 */
-
-	public Thread[] getAllThreads() {
-		final ThreadGroup root = getRootThreadGroup();
-		final ThreadMXBean thbean = ManagementFactory.getThreadMXBean();
-		int nAlloc = thbean.getThreadCount();
-		int n = 0;
-		Thread[] threads;
-		do {
-			nAlloc *= 2;
-			threads = new Thread[nAlloc];
-			n = root.enumerate(threads, true);
-		} while (n == nAlloc);
-		return java.util.Arrays.copyOf(threads, n);
-	}
+	protected abstract List<Integer> getAllJvmsPids();
 
 	/**
-	 * Retrieve the root thread group on hosting jvm
-	 * 
-	 * @return ThreadGroup
-	 */
-
-	public ThreadGroup getRootThreadGroup() {
-		if (rootThreadGroup != null)
-			return rootThreadGroup;
-		ThreadGroup tg = Thread.currentThread().getThreadGroup();
-		ThreadGroup ptg;
-		while ((ptg = tg.getParent()) != null)
-			tg = ptg;
-		return tg;
-	}
-
-	/**
-	 * Retrieve a native thread id of a java using a thread name.<br>
-	 * Function will return the first thread nid with given name found.
+	 * Retrieves the native id of a java thread
 	 * 
 	 * @param tName
-	 *            String: Thread name
-	 * @return An Integer number of the native thread id. <br>
-	 *         -1 is returned if thread was not found.
-	 * @throws IOException
+	 *            String thread name.
+	 * @return int thread id.
 	 */
 	public int getNativeThreadId(String tName) {
 		List<Integer> jvm = getAllJvmsPids();
+		BufferedReader reader = null;
 		int tid;
 		for (Integer ids : jvm) {
 			Process p = null;
@@ -72,8 +34,13 @@ public abstract class JavaThreadHandler {
 			} catch (IOException e) {
 
 			}
-			BufferedReader reader = new BufferedReader(new InputStreamReader(
-					p.getInputStream()));
+			if (p != null) {
+				reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+			} else {
+				if (log.isErrorEnabled())
+					log.error("An Unknown error accured while trying to activate Jstack");
+				return -2;
+			}
 			String line;
 			try {
 				while ((line = reader.readLine()) != null) {
@@ -86,38 +53,62 @@ public abstract class JavaThreadHandler {
 					}
 				}
 			} catch (NumberFormatException | IOException e) {
+				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+		}
+		return -1;
+	}
+
+
+	/**
+	 * Retrieves the native id of a java Thread by making the query according to
+	 * its containing process.
+	 * 
+	 * @param tName
+	 *            String Thread name.
+	 * @param pid
+	 *            int Process id.
+	 * @return int Thread native id.
+	 */
+	public int getNativeThreadId(String tName, int pid) {
+
+		int tid;
+		Process p = null;
+		BufferedReader reader = null;
+		try {
+			p = Runtime.getRuntime().exec("jstack " + pid);
+		} catch (IOException e) {
+
+		}
+		if (p != null) {
+			reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+		} else {
+			if (log.isErrorEnabled())
+				log.error("An Unknown error accured while trying to activate Jstack");
+			return -2;
+		}
+		String line;
+		try {
+			while ((line = reader.readLine()) != null) {
+				if (line.startsWith('"' + tName + '"')) {
+					int index = line.indexOf("nid=0x");
+					String nid = line.substring(index + 6);
+					nid = nid.substring(0, nid.indexOf(" "));
+					tid = (int) Long.parseLong(nid, 16);
+					return tid;
+				}
+			}
+		} catch (NumberFormatException | IOException e) {
+			e.printStackTrace();
 		}
 
 		return -1;
 	}
 
 	/**
-	 * Retrieve a native thread id of a java using a thread id. <br>
-	 * Function applies *only* for threads of the hosting JMV.
-	 * 
-	 * @param tid
-	 *            Integer: Thread id
-	 * @return An Integer number of the native thread id. <br>
-	 *         -1 is returned if thread was not found.
-	 */
-
-	public int getNativeThreadId(int tid) {
-		String tName = getThreadName(tid);
-		if (tName.equals("not found")) {
-			if (log.isErrorEnabled()) {
-				log.error("Thread with ID " + tid + " not found.");
-			}
-
-			return -1;
-		}
-
-		return getNativeThreadId(tName);
-	}
-
-	/**
-	 * 
+	 * Retrieves the native id of a java Thread by making the query according to
+	 * its containing process.
 	 * @param pid
 	 *            Int Process id
 	 * @param tid
@@ -138,47 +129,11 @@ public abstract class JavaThreadHandler {
 	}
 
 	/**
-	 * function applicable *only* for threads running on hosting jvm.
-	 * 
-	 * @param tName
-	 *            String Thread name.
-	 * @param pid
-	 *            int Process id
-	 * @return int Thread native id.
-	 */
-	public int getNativeThreadId(String tName, int pid) {
-
-		int tid;
-		Process p = null;
-		try {
-			p = Runtime.getRuntime().exec("jstack " + pid);
-		} catch (IOException e) {
-
-		}
-		BufferedReader reader = new BufferedReader(new InputStreamReader(
-				p.getInputStream()));
-		String line;
-		try {
-			while ((line = reader.readLine()) != null) {
-				if (line.startsWith('"' + tName + '"')) {
-					int index = line.indexOf("nid=0x");
-					String nid = line.substring(index + 6);
-					nid = nid.substring(0, nid.indexOf(" "));
-					tid = (int) Long.parseLong(nid, 16);
-					return tid;
-				}
-			}
-		} catch (NumberFormatException | IOException e) {
-			e.printStackTrace();
-		}
-
-		return -1;
-	}
-
-	/**
+	 * Retrieves a thread name as it is called in the JVM by its id given to it
+	 * by the JVM.
 	 * @param tid
 	 *            int thread id.
-	 * @return String thread name or "not found" if fails.
+	 * @return String thread name, null if not found.
 	 */
 	public String getThreadName(int tid) {
 		Thread[] threads = getAllThreads();
@@ -187,7 +142,41 @@ public abstract class JavaThreadHandler {
 				return thread.getName();
 		}
 
-		return "not found";
+		return null;
+	}
+
+	/**
+	 * Retrieve all threads on hosting JVM.
+	 * @return Thread Array: threads
+	 */
+	public Thread[] getAllThreads() {
+		final ThreadGroup root = getRootThreadGroup();
+		final ThreadMXBean thbean = ManagementFactory.getThreadMXBean();
+		int nAlloc = thbean.getThreadCount();
+		int n = 0;
+		Thread[] threads;
+		do {
+			nAlloc *= 2;
+			threads = new Thread[nAlloc];
+			n = root.enumerate(threads, true);
+		} while (n == nAlloc);
+		return java.util.Arrays.copyOf(threads, n);
+	}
+
+	/**
+	 * Retrieve the root thread group on hosting JVM.
+	 * 
+	 * @return ThreadGroup
+	 */
+	public ThreadGroup getRootThreadGroup() 
+	{
+		if (rootThreadGroup != null)
+			return rootThreadGroup;
+		ThreadGroup tg = Thread.currentThread().getThreadGroup();
+		ThreadGroup ptg;
+		while ((ptg = tg.getParent()) != null)
+			tg = ptg;
+		return tg;
 	}
 
 }

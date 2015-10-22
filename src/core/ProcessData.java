@@ -3,115 +3,85 @@ package core;
 import java.util.ArrayList;
 import java.util.List;
 
-import normalizers.LinuxNormalizer;
-import normalizers.Normalize;
-import normalizers.WindowsNormalizer;
 
-public class ProcessData {
-
-	private int policy;
+/**
+ * ProcessData class represents the data of a process such as ID, name, affinity, priority and threads list in case the process has threads. 
+ * Use this class when you want to set affinity/priority to a collection of processes.
+ */
+public class ProcessData 
+{
 	private int pid;
 	private String pName = "none";
 	private int priority;
 	private int[] affinity;
-	private Normalize normalizer;
 	private List<ThreadData> threads;
 
 	/**
-	 * 
+	 * Constructor by process name.
 	 * @param name
-	 * @param policy
+	 * 			Process name.
 	 * @param priority
+	 * 			Process priority.
 	 * @param affinity
+	 * 			Process affinity. Each value in the array represent a CPU.
 	 */
-	public ProcessData(String name, int priority, int[] affinity) {
-
-		if (System.getProperty("os.name").startsWith("Windows")) {
-			normalizer = new WindowsNormalizer();
-		} else if (System.getProperty("os.name").startsWith("Linux")) {
-			normalizer = new LinuxNormalizer();
-		}
-
+	public ProcessData(String name, int priority, int[] affinity) 
+	{
 		this.threads = new ArrayList<>();
-		int[] normalizedValues = normalizer.normalize(priority, true);
-		if (normalizedValues != null) {
-			this.policy = normalizedValues[0];
-			this.pName = name;
-			this.priority = normalizedValues[1];
-			this.affinity = affinity;
-		} else {
-			this.policy = -1;
-			this.pName = name;
-			this.priority = -1;
-			this.affinity = affinity;
-
-		}
+		this.priority = priority;
+		this.pName = name;
+		this.affinity = affinity;
 	}
 
 	/**
-	 *
+	 * Constructor by process ID.
 	 * @param pid
-	 * @param policy
+	 * 			Process ID.
 	 * @param priority
+	 * 			Process priority.
 	 * @param affinity
+	 * 			Process affinity. Each value in the array represent a CPU.
 	 */
-	public ProcessData(int pid, int priority, int[] affinity) {
-		if (System.getProperty("os.name").startsWith("Windows")) {
-			normalizer = new WindowsNormalizer();
-		} else if (System.getProperty("os.name").startsWith("Linux")) {
-			normalizer = new LinuxNormalizer();
-		}
-
+	public ProcessData(int pid, int priority, int[] affinity) 
+	{
 		this.threads = new ArrayList<>();
-		int[] normalizedValues = normalizer.normalize(priority, true);
-		if (normalizedValues != null) {
-			this.policy = normalizedValues[0];
-			this.pid = pid;
-			this.priority = normalizedValues[1];
-			this.affinity = affinity;
-		} else {
-			this.policy = -1;
-			this.pid = pid;
-			this.priority = -1;
-			this.affinity = affinity;
-		}
+		this.pid = pid;
+		this.priority = priority;
+		this.affinity = affinity;
 	}
 
 	/**
-	 * 
-	 * @param policy
-	 */
-	public void setPolicy(int policy) {
-		this.policy = policy;
-	}
-
-	/**
-	 * 
+	 * Set process name.
 	 * @param name
+	 * 			Process name.
 	 */
 	public void setName(String name) {
 		this.pName = name;
 	}
-
+	
 	/**
-	 * 
+	 * Set process ID.
 	 * @param pid
+	 * 			Process ID.
 	 */
-	public void setId(int pid) {
+	public void setId(int pid)
+	{
 		this.pid = pid;
 	}
 
 	/**
-	 * 
+	 * Set process priority.
 	 * @param priority
+	 * 				Process priority.
 	 */
 	public void setPriority(int priority) {
 		this.priority = priority;
 	}
 
 	/**
-	 * 
+	 * Set process affinity. Each value in the array represent a CPU.
 	 * @param affinity
+	 * 				Array of integer values which represent process affinity.
 	 */
 	public void setAffinity(int[] affinity) {
 		this.affinity = new int[affinity.length];
@@ -121,56 +91,55 @@ public class ProcessData {
 	}
 
 	/**
-	 * 
+	 * Add a thread to a list of threads.
 	 * @param thread
+	 * 			Thread of ThreadData type.
 	 */
 	public void addThread(ThreadData thread) {
 		this.threads.add(thread);
 	}
 
 	/**
-	 * 
+	 * Get process ID.
 	 * @return
+	 * 		Process ID.
 	 */
 	public int getId() {
 		return this.pid;
 	}
 
 	/**
-	 * 
+	 * Get process priority.
 	 * @return
+	 * 		Process priority.
 	 */
 	public int getPriority() {
 		return this.priority;
 	}
 
 	/**
-	 * 
+	 * Get process affinity.
 	 * @return
+	 * 		Array of integer values, each represents a CPU.
 	 */
 	public int[] getAffinity() {
 		return this.affinity;
 	}
 
 	/**
-	 * 
+	 * Get process Name.
 	 * @return
+	 * 		Process name.
 	 */
 	public String getName() {
 		return this.pName;
 	}
 
-	/**
-	 * 
-	 * @return
-	 */
-	public int getPolicy() {
-		return this.policy;
-	}
 
 	/**
-	 * 
+	 * Get a list of threads running in the process.
 	 * @return
+	 * 		List of threads, each thread is of ThreadData type.
 	 */
 	public List<ThreadData> getThreads() {
 		return this.threads;

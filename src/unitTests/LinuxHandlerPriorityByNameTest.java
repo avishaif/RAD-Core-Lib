@@ -18,6 +18,7 @@ import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
 import handlers.LinuxHandler;
+import normalizers.Normalizer;
 
 /**
  *
@@ -27,45 +28,44 @@ import handlers.LinuxHandler;
 public class LinuxHandlerPriorityByNameTest {
 
     private int priority;
-    private int policy;
     private String name;
     private boolean expected;
     private LinuxHandler handler;
-    public LinuxHandlerPriorityByNameTest(boolean expected, String name, int policy, int priority) {
+	private Normalizer normalizer;
+    public LinuxHandlerPriorityByNameTest(boolean expected, String name, int priority) {
         this.name = name;
-        this.policy = policy;
         this.priority = priority;
         this.expected = expected;
     }
 
     @Parameters
-    public static Collection<Object[]> setProcessAffinityId() {
+    public static Collection<Object[]> setProcessPriorityName() {
         return Arrays.asList(new Object[][]{
-            {false, "", 0, 0},
-            {false, "not empty", -1, 0},
-            {false, "not empty", 3, 0},
-            {false, "not empty", 0, -21},
-            {false, "not empty", 0, 20},
-            {false, "not empty", 1, 0},
-            {false, "not empty", 1, 100},
-            {false, "systemd", 0, 0},
-            {true, "chrome", 0, 0}
+            {false, "", 1},
+            {false, "not empty", 1},
+            {false, "not empty", 1},
+            {false, "not empty", 0},
+            {false, "not empty", 101},
+            {false, "systemd", 1},
+            {false, "chrome", 0},
+            {true, "chrome", 1}
         });
     }
     
     @Before
     public void init(){
-    	handler = new LinuxHandler();
+    	normalizer = new Normalizer("Linux");
+    	handler = new LinuxHandler(normalizer);
     }
 
     /**
      * Test of setProcessPriority method, of class LinuxHandler.
      */
-    @Test
-    public void testSetProcessPriority_string_int_int() {
-        System.out.println("setProcessPriority");
-        assertEquals(expected, handler.setProcessPriority(name, policy, priority));
-    }
+//    @Test
+//    public void testSetProcessPriority_string_int_int() {
+//        System.out.println("setProcessPriority");
+//        assertEquals(expected, handler.setProcessPriority(name, priority));
+//    }
 
     /**
      * Test of setThreadPriority method, of class LinuxHandler.
@@ -73,7 +73,7 @@ public class LinuxHandlerPriorityByNameTest {
     @Test
     public void testSetThreadPriority_string_int_int() {
         System.out.println("setThreadPriority");
-        assertEquals(expected, handler.setNativeThreadPriority(name, policy, priority));
+        assertEquals(expected, handler.setNativeThreadPriority(name, priority));
     }
 }
 

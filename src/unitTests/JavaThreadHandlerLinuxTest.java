@@ -27,7 +27,7 @@ private JavaThreadHandlerLinux parser;
 		System.out.println("getThreadName");
 		assertEquals("main", parser.getThreadName(1));
 		System.out.println("getThreadName");
-		assertEquals("not found", parser.getThreadName(123456));
+		assertEquals(null, parser.getThreadName(123456));
 	}
 
 }

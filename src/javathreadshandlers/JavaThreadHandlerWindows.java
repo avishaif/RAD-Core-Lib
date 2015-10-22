@@ -26,7 +26,9 @@ public class JavaThreadHandlerWindows extends JavaThreadHandler
 	
 
 	/**
+	 * Retrieve all running jvms process ids.
 	 * 
+	 * @return Integer List: containing all active jvms process ids.
 	 */
 	@Override
 	public List<Integer> getAllJvmsPids()

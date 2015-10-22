@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,15 +21,13 @@ public class JavaThreadHandlerLinux extends JavaThreadHandler {
 	 * 
 	 * @return Integer List: containing all active jvms process ids.
 	 */
-
 	@Override
 	public List<Integer> getAllJvmsPids() {
 		List<Integer> jvm = new ArrayList<>();
 		BufferedReader br = null;
 		String line;
 		File file = new File("/proc");
-		String[] processes = file.list((File current, String name) -> new File(
-				current, name).isDirectory());
+		String[] processes = file.list((File current, String name) -> new File(current, name).isDirectory());
 		for (int i = 0; i < processes.length; i++) {
 			if (processes[i].matches("[0-9]+")) {
 				File process = new File("/proc/" + processes[i] + "/status");
@@ -41,16 +40,19 @@ public class JavaThreadHandlerLinux extends JavaThreadHandler {
 							words = line.split(":\t");
 							if (words[0].equals("Pid")) {
 								jvm.add(Integer.parseInt(words[1]));
+								br.close();
 								break;
 							}
 						}
-					} else
+					} else {
+						br.close();
 						continue;
-
+					}
 				} catch (FileNotFoundException e) {
+					e.printStackTrace();
 					continue;
-
 				} catch (IOException e) {
+					e.printStackTrace();
 					if (log.isErrorEnabled()) {
 						log.error(e);
 					}
@@ -61,12 +63,29 @@ public class JavaThreadHandlerLinux extends JavaThreadHandler {
 			log.error("No jvm was found");
 			return null;
 		} else {
-			try {
-				br.close();
-			} catch (IOException e) {
-
-			}
 			return jvm;
 		}
+	}
+
+	/**
+	 * Retrieve a native thread id of a java using a thread id. <br>
+	 * Function applies *only* for threads of the hosting JMV.
+	 * 
+	 * @param tid
+	 *            Integer: Thread id
+	 * @return An Integer number of the native thread id. <br>
+	 *         -1 is returned if thread was not found.
+	 */
+	public int getNativeThreadId(int tid) {
+		String tName = getThreadName(tid);
+		if (tName == null) {
+			if (log.isErrorEnabled()) {
+				log.error("Thread with ID " + tid + " not found.");
+			}
+
+			return -1;
+		}
+
+		return getNativeThreadId(tName);
 	}
 }
