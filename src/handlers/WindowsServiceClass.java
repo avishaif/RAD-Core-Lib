@@ -438,7 +438,7 @@ public class WindowsServiceClass
 	/**
 	 * @return
 	 * 		 Obtains the human-readable error message text from the last error
-	 *       that occurred by invocating {@code Kernel32.GetLastError()}.
+	 *       that occurred by invoking {@code Kernel32.GetLastError()}.
 	 */
 	public static String getLastErrorMessage() 
     {
@@ -448,7 +448,6 @@ public class WindowsServiceClass
 
 }
 // end of class
-
 
 
 
