@@ -19,7 +19,7 @@ public final class Constants
 	public final static int NORMAL_PRIORITY_CLASS       = 0x0000020; // value = 32
 	public final static int ABOVE_NORMAL_PRIORITY_CLASS = 0x0008000; // value = 32768
 	public final static int HIGH_PRIORITY_CLASS         = 0x0000080; // value = 128
-	public final static int REALTIME_PRIORITY_CLASS     = 0x0000010;
+	public final static int REALTIME_PRIORITY_CLASS     = 0x0000100;
 	public final static int THREAD_PRIORITY_IDLE          = -15;
 	public final static int THREAD_PRIORITY_LOWEST        = -2;
 	public final static int THREAD_PRIORITY_BELOW_NORMAL  = -1;
