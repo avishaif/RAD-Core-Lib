@@ -1,6 +1,7 @@
 package os_api.windows;
 
 import com.sun.jna.Library;
+import com.sun.jna.PointerType;
 import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.platform.win32.Tlhelp32.PROCESSENTRY32.ByReference;
 import com.sun.jna.platform.win32.WinBase.SYSTEM_INFO;
@@ -15,14 +16,16 @@ public interface Kernel32 extends Library
 	
 	public int GetLastError();
 	
+	public void CloseHandle(HANDLE snapshot);
+	
 	
 	//
 	// PROCESS METHODS
 	//
+
+//	public int GetPriorityClass(HANDLE hProc);
 	
-	//public int GetProcessAffinityMask(HANDLE hProc, final PointerType lpProcessAffinityMask, final PointerType lpSystemAffinityMask) throws LastErrorException;
-	
-	//public int GetPriorityClass(HANDLE hProc);
+	public int GetProcessAffinityMask(HANDLE hProc, final PointerType lpProcessAffinityMask, final PointerType lpSystemAffinityMask);
 	
 	public boolean SetProcessAffinityMask(HANDLE hProc, int affinityMask);
 	
@@ -30,11 +33,9 @@ public interface Kernel32 extends Library
 	
 	public boolean SetPriorityClass(HANDLE hProc, int priorityClass);
 	
-	public HANDLE CreateToolhelp32Snapshot(WinDef.DWORD a, WinDef.DWORD b);
+	public HANDLE CreateToolhelp32Snapshot(WinDef.DWORD flags, WinDef.DWORD th32ProcessID);
 	
 	public boolean Process32Next(HANDLE snapshot, ByReference processEntry);
-	
-	public void CloseHandle(HANDLE snapshot);
 	
 	
 	
@@ -43,7 +44,7 @@ public interface Kernel32 extends Library
 	// THREAD METHODS
 	//
 	
-	public int GetThreadPriority(HANDLE hThread);
+//	public int GetThreadPriority(HANDLE hThread);
 	
 	public boolean SetThreadAffinityMask(HANDLE hThread, int affinityMask);
 	
